@@ -48,12 +48,22 @@ export function useTranscription(sdk: EditorSDK, args: { audioField?: string; fi
   const connected = Boolean(params.connected || params.apiKey)
   const api = useMemo(() => (connected ? appActionBackend(sdk) : undefined), [connected, sdk])
 
+  const [value, setValue] = useState<undefined | VocalStackFieldData>(() => (field?.getValue(locale) as undefined | VocalStackFieldData) ?? undefined)
+
+  // What this editor writes shows at once, whether or not Contentful echoes it back
+  // through onValueChanged; other editors (the sidebar, other tabs) hear it from there.
   const target = useMemo<FieldTarget | undefined>(
-    () => field && { get: () => field.getValue(locale) as undefined | VocalStackFieldData, set: (v) => field.setValue(v, locale) },
+    () =>
+      field && {
+        get: () => field.getValue(locale) as undefined | VocalStackFieldData,
+        set: async (v) => {
+          const out = await field.setValue(v, locale)
+          setValue(v)
+          return out
+        },
+      },
     [field, locale],
   )
-
-  const [value, setValue] = useState<undefined | VocalStackFieldData>(() => target?.get())
   const [disabled, setDisabled] = useState(false)
   const [progress, setProgress] = useState<JobProgress>({})
   const [error, setError] = useState<string>()
@@ -187,7 +197,10 @@ export function useTranscription(sdk: EditorSDK, args: { audioField?: string; fi
   /** Save the editor's own text. The timings stay; they no longer match the words. */
   const editText = useCallback((transcript: string) => target?.set({ ...target.get(), transcript }), [target])
 
-  const clear = useCallback(() => field?.removeValue(locale), [field, locale])
+  const clear = useCallback(async () => {
+    await field?.removeValue(locale)
+    setValue(undefined)
+  }, [field, locale])
 
   const busy = starting || (processing && !halted)
   return {
