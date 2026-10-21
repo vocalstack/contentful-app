@@ -1,0 +1,41 @@
+{
+  "name": "@vocalstack/contentful",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VocalStack for Contentful: a Transcribe button on every entry with audio.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "start": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "upload": "contentful-app-scripts upload --bundle-dir ./build",
+    "upload-ci": "contentful-app-scripts upload --ci --bundle-dir ./build --organization-id $CONTENTFUL_ORG_ID --definition-id $CONTENTFUL_APP_DEF_ID --token $CONTENTFUL_ACCESS_TOKEN"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/vocalstack/contentful-app.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@contentful/app-sdk": "^4.74.0",
+    "@contentful/f36-components": "^6.27.1",
+    "@contentful/f36-icons": "^6.27.1",
+    "@contentful/f36-tokens": "^6.3.1",
+    "@contentful/react-apps-toolkit": "^2.0.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@contentful/app-scripts": "^4.1.14",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.5",
+    "vitest": "^4.1.12"
+  }
+}
