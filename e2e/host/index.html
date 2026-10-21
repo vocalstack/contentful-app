@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fake Contentful</title>
+    <style>
+      body { margin: 0; font: 14px system-ui, sans-serif; background: #f7f9fa; color: #1b273a; }
+      header { display: flex; align-items: center; gap: 12px; padding: 10px 20px; background: #0c141c; color: #fff; }
+      header .title { font-weight: 600; flex: 1; }
+      header nav a { color: #b3c1cf; margin-right: 12px; }
+      header button { font: inherit; padding: 6px 14px; border: 0; border-radius: 6px; background: #036fe3; color: #fff; cursor: pointer; }
+      header button:disabled { opacity: 0.5; }
+      main { padding: 20px; }
+      iframe { display: block; width: 100%; border: 0; height: 120px; background: transparent; }
+      .editor { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
+      .field { background: #fff; border: 1px solid #d3dce0; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; }
+      .field label { display: block; font-weight: 600; margin-bottom: 6px; }
+      .field input { font: inherit; width: 100%; box-sizing: border-box; padding: 6px 8px; }
+      aside { background: #fff; border: 1px solid #d3dce0; border-radius: 6px; padding: 12px; }
+      aside h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; color: #67728a; }
+      #toasts { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; z-index: 10; }
+      .toast { padding: 8px 14px; border-radius: 6px; background: #0c141c; color: #fff; }
+      .toast[data-type='error'] { background: #bd002a; }
+      #dialog { position: fixed; inset: 0; background: rgba(12, 20, 28, 0.5); display: none; align-items: center; justify-content: center; z-index: 20; }
+      #dialog.open { display: flex; }
+      #dialog .box { background: #fff; border-radius: 8px; padding: 20px; width: 400px; }
+      #dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+      #dialog button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid #d3dce0; background: #fff; cursor: pointer; }
+      #dialog button.negative { background: #bd002a; color: #fff; border-color: #bd002a; }
+      #unhandled { color: #bd002a; font-family: ui-monospace, monospace; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="title" id="title">Fake Contentful</span>
+      <nav><a href="?view=config">App configuration</a><a href="?view=entry">Entry</a></nav>
+      <button hidden id="install">Install</button>
+    </header>
+    <main id="main"></main>
+    <div id="toasts"></div>
+    <div id="dialog" role="dialog">
+      <div class="box">
+        <h2 id="dialog-title"></h2>
+        <p id="dialog-message"></p>
+        <div class="actions">
+          <button id="dialog-cancel">Cancel</button>
+          <button class="negative" id="dialog-confirm">Confirm</button>
+        </div>
+      </div>
+    </div>
+    <pre id="unhandled"></pre>
+    <script type="module" src="./host.js"></script>
+  </body>
+</html>

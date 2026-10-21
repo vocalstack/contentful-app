@@ -26,6 +26,8 @@ A custom app ([App Framework](https://www.contentful.com/developers/docs/extensi
 
 For development, `npm start` serves the frontend on `http://localhost:5173`; set that as the Frontend URL and open the app from a space it is installed in. The app actions still run the uploaded function.
 
+Tests: `npm test` (unit), and `VOCALSTACK_API_KEY=vs_key_… npm run e2e`, which runs the built app and function in a real browser inside a local stand-in for Contentful, against a real VocalStack, with no Contentful account (see [e2e/README.md](e2e/README.md)).
+
 ## What it adds
 
 - **For each content type picked on the configuration screen:**

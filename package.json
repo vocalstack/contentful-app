@@ -14,7 +14,8 @@
     "upsert-actions": "contentful-app-scripts upsert-actions",
     "deploy": "npm run upload && npm run upsert-actions",
     "upload-ci": "contentful-app-scripts upload --ci --bundle-dir ./build --organization-id $CONTENTFUL_ORG_ID --definition-id $CONTENTFUL_APP_DEF_ID --token $CONTENTFUL_ACCESS_TOKEN",
-    "upsert-actions-ci": "contentful-app-scripts upsert-actions --ci --organization-id $CONTENTFUL_ORG_ID --definition-id $CONTENTFUL_APP_DEF_ID --token $CONTENTFUL_ACCESS_TOKEN"
+    "upsert-actions-ci": "contentful-app-scripts upsert-actions --ci --organization-id $CONTENTFUL_ORG_ID --definition-id $CONTENTFUL_APP_DEF_ID --token $CONTENTFUL_ACCESS_TOKEN",
+    "e2e": "e2e/run.sh"
   },
   "repository": {
     "type": "git",
@@ -38,6 +39,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "playwright": "1.64.1",
     "typescript": "^5.9.3",
     "vite": "^8.3.5",
     "vitest": "^4.1.12"

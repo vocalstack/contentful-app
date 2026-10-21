@@ -23,6 +23,34 @@ export function isContentfulAssetURL(url: string): boolean {
   }
 }
 
+/**
+ * Test only (e2e/): extra asset hosts, as `host:port`, from VOCALSTACK_TEST_ASSET_HOSTS.
+ * Read from the process environment, which Contentful's Functions runtime does not set,
+ * so a deployed function accepts ctfassets.net only. (`globalThis.process`, not
+ * `process`: the build's Node globals polyfill would read an empty env.)
+ */
+export function testAssetHosts(): string[] {
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+  return (env?.VOCALSTACK_TEST_ASSET_HOSTS ?? '')
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean)
+}
+
+/** The asset's address on a test host, over http (the frontend writes https), else undefined. */
+function testAssetURL(url: string): undefined | URL {
+  const hosts = testAssetHosts()
+  if (!hosts.length) return undefined
+  try {
+    const u = new URL(url)
+    if (!hosts.includes(u.host.toLowerCase())) return undefined
+    u.protocol = 'http:'
+    return u
+  } catch {
+    return undefined
+  }
+}
+
 const compact = (t: Transcript, latest?: number): CompactTranscript => {
   const sentences = t.sentences.filter((s) => !s.suppressed && s.text.trim())
   return { lang: t.lang, sentences: latest ? sentences.slice(-latest) : sentences }
@@ -67,12 +95,22 @@ export async function run(params: ActionParams, install: AppInstallationParamete
           throw err
         }
       case 'transcribe': {
-        if (!isContentfulAssetURL(params.url)) return refused(400, 'invalid_url', 'Only Contentful asset files (ctfassets.net) can be transcribed.')
-        const tx = await api.transcribeURL(params.url, {
+        const opts = {
           idempotencyKey: `contentful:${ctx.spaceId}:${params.idempotencyKey}`,
           name: params.name || 'Contentful audio',
           spokenLanguage: install.spokenLanguage || undefined,
-        })
+        }
+        const local = testAssetURL(params.url)
+        let tx
+        if (local) {
+          // VocalStack does not fetch private addresses, so a test host's file is uploaded.
+          const file = await fetch(local)
+          if (!file.ok) return refused(502, 'asset_unreachable', `The asset file answered ${file.status}.`)
+          tx = await api.transcribeFile(await file.blob(), decodeURIComponent(local.pathname.split('/').pop() || 'audio'), opts)
+        } else {
+          if (!isContentfulAssetURL(params.url)) return refused(400, 'invalid_url', 'Only Contentful asset files (ctfassets.net) can be transcribed.')
+          tx = await api.transcribeURL(params.url, opts)
+        }
         if (!tx.job) return refused(502, 'no_job', 'VocalStack did not start a job for this file.')
         return { recordingId: tx.job.recordingId, state: tx.job.state, transcriptionId: tx.id }
       }
