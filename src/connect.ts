@@ -1,14 +1,18 @@
 /**
  * One-click connect, as OAuth 2.0 authorization code + PKCE (RFC 7636) whose
- * token is a VocalStack API key, the Payload plugin's protocol run in the browser:
+ * token is a VocalStack API key, the Payload plugin's protocol with the App Function as its server:
  *
  * 1. The configuration screen makes a state and a verifier (kept in memory only) and
  *    opens {dashboard}/connect?response_type=code&redirect_uri=…&state=…&code_challenge=…
  * 2. The person clicks Authenticate on the dashboard, which redirects to this app's
  *    own page with ?code=…&state=… (the `vocalstack-connect` callback, see callback.ts).
- * 3. That tab hands the code to the configuration screen, which checks the state and
- *    redeems the code at {api}/v1/connect/token with the verifier.
+ * 3. That tab hands the code to the configuration screen, which checks the state and has
+ *    the App Function redeem the code at {api}/v1/connect/token with the verifier (the
+ *    token endpoint answers servers only). The key it answers is saved as the Secret
+ *    `apiKey` installation parameter.
  */
+
+import type { Backend } from './backend.js'
 
 export const CALLBACK_PARAM = 'vocalstack-connect'
 export const CONNECT_MESSAGE = 'vocalstack:connect'
@@ -54,16 +58,9 @@ export function readCallback(search: string): ConnectResult {
   return { code: get('code'), error: get('error'), errorDescription: get('error_description'), state: get('state') }
 }
 
-/** Redeem the code for an API key. */
-export async function finishConnect(pending: PendingConnect, result: ConnectResult, apiURL: string): Promise<{ account?: string; apiKey: string }> {
+/** Have the App Function redeem the code for an API key. */
+export async function finishConnect(pending: PendingConnect, result: ConnectResult, backend: Pick<Backend, 'connect'>): Promise<{ account?: string; apiKey: string }> {
   if (!result.state || result.state !== pending.state) throw new Error('This connect link has expired. Start again.')
   if (result.error) throw new Error(result.error === 'access_denied' ? 'Connection cancelled.' : `VocalStack said: ${result.errorDescription ?? result.error}`)
-  const res = await fetch(`${apiURL}/v1/connect/token`, {
-    body: new URLSearchParams({ code: result.code ?? '', code_verifier: pending.verifier, grant_type: 'authorization_code', redirect_uri: pending.redirectURI }),
-    headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
-    method: 'POST',
-  })
-  const token = (await res.json().catch(() => ({}))) as { access_token?: string; account?: { name?: string }; error_description?: string }
-  if (!res.ok || !token.access_token) throw new Error(`VocalStack did not issue a key: ${token.error_description ?? res.status}`)
-  return { account: token.account?.name, apiKey: token.access_token }
+  return backend.connect({ code: result.code ?? '', codeVerifier: pending.verifier, redirectUri: pending.redirectURI })
 }

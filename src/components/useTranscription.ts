@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { AppInstallationParameters, JobProgress, VocalStackFieldData } from '../types.js'
 
-import { DEFAULT_API_URL, VocalStackAPI } from '../api.js'
+import { appActionBackend } from '../backend.js'
 import { type FieldDef, type AssetLike, findAudio } from '../audio.js'
 import { type FieldTarget, type Outcome, checkJob, describeError, startTranscription, stopTranscription } from '../transcription.js'
 
@@ -44,7 +44,9 @@ export function useTranscription(sdk: EditorSDK, args: { audioField?: string; fi
   const params = sdk.parameters.installation ?? {}
   const field = fieldId ? sdk.entry.fields[fieldId] : undefined
   const locale = fieldId ? fieldLocale(sdk, fieldId, args.locale) : args.locale
-  const api = useMemo(() => (params.apiKey ? new VocalStackAPI(params.apiKey, params.apiURL || DEFAULT_API_URL) : undefined), [params.apiKey, params.apiURL])
+  // The key itself is a Secret parameter: only the App Function reads it.
+  const connected = Boolean(params.connected || params.apiKey)
+  const api = useMemo(() => (connected ? appActionBackend(sdk) : undefined), [connected, sdk])
 
   const target = useMemo<FieldTarget | undefined>(
     () => field && { get: () => field.getValue(locale) as undefined | VocalStackFieldData, set: (v) => field.setValue(v, locale) },
@@ -151,9 +153,8 @@ export function useTranscription(sdk: EditorSDK, args: { audioField?: string; fi
       const display = contentType.displayField ? sdk.entry.fields[contentType.displayField]?.getValue(fieldLocale(sdk, contentType.displayField, locale)) : undefined
       const name = (typeof display === 'string' && display.trim()) || audio.title || audio.fileName
       await startTranscription(api, target, {
-        idempotencyKey: `contentful:${sdk.ids.space}:${sdk.ids.entry}:${crypto.randomUUID()}`,
-        name,
-        spokenLanguage: params.spokenLanguage || undefined,
+        idempotencyKey: `${sdk.ids.entry}:${crypto.randomUUID()}`,
+        name: name.slice(0, 200),
         url: audio.url,
       })
     } catch (err) {
@@ -161,7 +162,7 @@ export function useTranscription(sdk: EditorSDK, args: { audioField?: string; fi
     } finally {
       setStarting(false)
     }
-  }, [api, args.audioField, fieldId, locale, params.spokenLanguage, sdk, target])
+  }, [api, args.audioField, fieldId, locale, sdk, target])
 
   const stop = useCallback(async () => {
     if (!api || !target) return

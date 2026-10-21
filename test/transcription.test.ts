@@ -1,64 +1,54 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import type { VocalStackFieldData } from '../src/types.js'
 
-import { type Job, type Transcript, VocalStackAPI, VocalStackAPIError } from '../src/api.js'
-import { type FieldTarget, checkJob, describeError, startTranscription, stopTranscription } from '../src/transcription.js'
+import { VocalStackAPIError } from '../src/api.js'
+import { ActionCallError } from '../src/backend.js'
+import { checkJob, describeError, startTranscription, stopTranscription } from '../src/transcription.js'
+import { job, mockEntryField, mockSDK } from './harness.js'
 
-/** An entry field as the App SDK exposes it, per locale, autosaving like Contentful does. */
-function mockEntryField(initial?: VocalStackFieldData) {
-  const values: Record<string, unknown> = { 'en-US': initial }
-  const setValue = vi.fn(async (v: unknown, locale = 'en-US') => {
-    values[locale] = JSON.parse(JSON.stringify(v))
-    return values[locale] as never
-  })
-  const field = { getValue: (locale = 'en-US') => values[locale], setValue }
-  const target: FieldTarget = { get: () => field.getValue('en-US') as VocalStackFieldData | undefined, set: (v) => field.setValue(v, 'en-US') }
-  return { setValue, target, value: () => values['en-US'] as VocalStackFieldData | undefined }
-}
-
-const job = (patch: Partial<Job>): Job => ({ progress: { pct: 0 }, recordingId: 'rec_1', state: 'queued', transcriptionId: 'tx_1', ...patch })
-
-const transcript: Transcript = {
-  lang: 'en',
-  segments: [],
-  sentences: [
-    { end: 2.004, sentenceId: 1, speaker: 0, start: 0.5, text: 'Hello there.' },
-    { end: 3, sentenceId: 2, speaker: 0, start: 2.5, suppressed: true, text: 'uh' },
-    { end: 6, sentenceId: 3, speaker: 1, start: 4, text: ' Hi. ' },
-  ],
-}
-
-function mockAPI(over: Partial<Record<'job' | 'stop' | 'transcribeURL' | 'transcript', (...a: never[]) => unknown>>) {
-  const api = Object.create(VocalStackAPI.prototype) as VocalStackAPI
-  return Object.assign(api, {
-    job: vi.fn(async () => job({})),
-    stop: vi.fn(async () => ({})),
-    transcribeURL: vi.fn(async () => ({ id: 'tx_1', job: job({}), name: 'Episode 1' })),
-    transcript: vi.fn(async () => transcript),
-    ...over,
-  })
-}
-
+const install = { apiKey: 'vs_key_secret', connected: true, spokenLanguage: 'en' }
 const previous: VocalStackFieldData = { language: 'en', sentences: [{ end: 1, speaker: 0, start: 0, text: 'Old.' }], status: 'done', transcript: 'Old.' }
+const processing = { ...previous, recordingId: 'rec_1', status: 'processing' as const, transcriptionId: 'tx_1' }
 
 describe('startTranscription', () => {
-  it('sends the asset URL and saves the job in the field, keeping the earlier transcript', async () => {
+  it('has the function send the asset URL, and saves the job in the field, keeping the earlier transcript', async () => {
     const f = mockEntryField(previous)
-    const api = mockAPI({})
-    await startTranscription(api, f.target, { idempotencyKey: 'k', name: 'Episode 1', spokenLanguage: 'en', url: 'https://assets.ctfassets.net/a/b/c/ep.mp3' })
-    expect(api.transcribeURL).toHaveBeenCalledWith('https://assets.ctfassets.net/a/b/c/ep.mp3', { idempotencyKey: 'k', name: 'Episode 1', spokenLanguage: 'en' })
+    const { backend, createWithResult, vs } = mockSDK(install)
+    await startTranscription(backend, f.target, { idempotencyKey: 'entry1:k', name: 'Episode 1', url: 'https://assets.ctfassets.net/a/b/c/ep.mp3' })
+
+    // The frontend sends the action no key; the function adds it.
+    expect(JSON.stringify(createWithResult.mock.calls)).not.toContain('vs_key_')
+    expect(createWithResult.mock.calls[0][0]).toEqual({ appActionId: 'vocalstackTranscribe', appDefinitionId: 'app1' })
+    const sent = vs.calls[0]
+    expect(sent.path).toBe('/v1/transcriptions')
+    expect(sent.headers.authorization).toBe('Bearer vs_key_secret')
+    expect(sent.headers['idempotency-key']).toBe('contentful:space1:entry1:k')
+    expect(JSON.parse(sent.body!)).toEqual({ name: 'Episode 1', settings: { spokenLanguage: 'en' }, url: 'https://assets.ctfassets.net/a/b/c/ep.mp3' })
     expect(f.value()).toMatchObject({ error: null, recordingId: 'rec_1', status: 'processing', transcript: 'Old.', transcriptionId: 'tx_1' })
+  })
+
+  it('refuses addresses that are not Contentful assets', async () => {
+    const f = mockEntryField()
+    const { backend, vs } = mockSDK(install)
+    await expect(startTranscription(backend, f.target, { idempotencyKey: 'k', name: 'x', url: 'https://example.com/a.mp3' })).rejects.toThrow(/ctfassets\.net/)
+    expect(vs.calls).toHaveLength(0)
+    expect(f.setValue).not.toHaveBeenCalled()
+  })
+
+  it('asks to connect when no key is saved', async () => {
+    const { backend } = mockSDK({})
+    const err = await backend.transcribe({ idempotencyKey: 'k', name: 'x', url: 'https://assets.ctfassets.net/x.mp3' }).catch((e) => e)
+    expect(describeError(err).message).toBe('Connect VocalStack in the app configuration first.')
   })
 })
 
 describe('checkJob', () => {
-  const processing = { ...previous, recordingId: 'rec_1', status: 'processing' as const, transcriptionId: 'tx_1' }
-
-  it('reports progress without writing while the job runs', async () => {
+  it('reports progress and the sentences so far without writing while the job runs', async () => {
     const f = mockEntryField(processing)
-    const api = mockAPI({ job: async () => job({ progress: { pct: 40, processedS: 60, totalS: 150 }, state: 'transcribing' }) })
-    const out = await checkJob(api, f.target, 'rec_1')
+    const { backend, vs } = mockSDK(install)
+    vs.state.job = job({ progress: { pct: 40, processedS: 60, totalS: 150 }, state: 'transcribing' })
+    const out = await checkJob(backend, f.target, 'rec_1')
     expect(out).toMatchObject({ kind: 'processing', progress: { audio: { processedS: 60, totalS: 150 }, phase: 'transcribing', progress: 40 } })
     if (out.kind === 'processing') expect(out.progress.partial?.map((s) => s.text)).toEqual(['Hello there.', 'Hi.'])
     expect(f.setValue).not.toHaveBeenCalled()
@@ -66,8 +56,9 @@ describe('checkJob', () => {
 
   it('saves the transcript, sentences in seconds and the language when done', async () => {
     const f = mockEntryField(processing)
-    const out = await checkJob(mockAPI({ job: async () => job({ state: 'done' }) }), f.target, 'rec_1')
-    expect(out.kind).toBe('done')
+    const { backend, vs } = mockSDK(install)
+    vs.state.job = job({ state: 'done' })
+    expect((await checkJob(backend, f.target, 'rec_1')).kind).toBe('done')
     const v = f.value()!
     expect(v.status).toBe('done')
     expect(v.transcript).toBe('Hello there.\n\nHi.')
@@ -82,22 +73,25 @@ describe('checkJob', () => {
 
   it('saves the reason when the job failed', async () => {
     const f = mockEntryField(processing)
-    await checkJob(mockAPI({ job: async () => job({ error: 'Could not fetch the file.', state: 'failed' }) }), f.target, 'rec_1')
+    const { backend, vs } = mockSDK(install)
+    vs.state.job = job({ error: 'Could not fetch the file.', state: 'failed' })
+    await checkJob(backend, f.target, 'rec_1')
     expect(f.value()).toMatchObject({ error: 'Could not fetch the file.', status: 'failed', transcript: 'Old.' })
   })
 
   it('goes back to the earlier transcript when the job was stopped elsewhere', async () => {
     const f = mockEntryField(processing)
-    const out = await checkJob(mockAPI({ job: async () => job({ errorCode: 'stopped', state: 'failed' }) }), f.target, 'rec_1')
-    expect(out.kind).toBe('stopped')
+    const { backend, vs } = mockSDK(install)
+    vs.state.job = job({ errorCode: 'stopped', state: 'failed' })
+    expect((await checkJob(backend, f.target, 'rec_1')).kind).toBe('stopped')
     expect(f.value()).toMatchObject({ status: 'done', transcript: 'Old.' })
   })
 
   it('leaves the field alone when it moved on to another job', async () => {
     const f = mockEntryField({ ...processing, recordingId: 'rec_2' })
-    const api = mockAPI({ job: async () => job({ state: 'done' }) })
-    expect((await checkJob(api, f.target, 'rec_1')).kind).toBe('superseded')
-    expect(api.transcript).not.toHaveBeenCalled()
+    const { backend, vs } = mockSDK(install)
+    vs.state.job = job({ state: 'done' })
+    expect((await checkJob(backend, f.target, 'rec_1')).kind).toBe('superseded')
     expect(f.setValue).not.toHaveBeenCalled()
   })
 })
@@ -105,30 +99,41 @@ describe('checkJob', () => {
 describe('stopTranscription', () => {
   it('stops the job and restores idle when there was no transcript before', async () => {
     const f = mockEntryField({ recordingId: 'rec_1', status: 'processing', transcriptionId: 'tx_1' })
-    const api = mockAPI({})
-    expect((await stopTranscription(api, f.target)).kind).toBe('stopped')
-    expect(api.stop).toHaveBeenCalledWith('rec_1', 'Stopped from Contentful')
+    const { backend, vs } = mockSDK(install)
+    expect((await stopTranscription(backend, f.target)).kind).toBe('stopped')
+    expect(vs.calls.map((c) => `${c.method} ${c.path}`)).toEqual(['POST /v1/recordings/rec_1/stop'])
+    expect(JSON.parse(vs.calls[0].body!)).toEqual({ reason: 'Stopped from Contentful' })
     expect(f.value()?.status).toBe('idle')
   })
 
   it('takes the outcome when the job ended before the stop (409)', async () => {
     const f = mockEntryField({ recordingId: 'rec_1', status: 'processing', transcriptionId: 'tx_1' })
-    const api = mockAPI({
-      job: async () => job({ state: 'done' }),
-      stop: async () => {
-        throw new VocalStackAPIError(409, 'conflict', 'The job is over.')
-      },
-    })
-    expect((await stopTranscription(api, f.target)).kind).toBe('done')
+    const { backend, vs } = mockSDK(install)
+    Object.assign(vs.state, { job: job({ state: 'done' }), stopStatus: 409 })
+    expect((await stopTranscription(backend, f.target)).kind).toBe('done')
     expect(f.value()?.transcript).toBe('Hello there.\n\nHi.')
   })
 })
 
+describe('the App Function', () => {
+  it('redeems a one-click code server-side, with no Origin', async () => {
+    const { backend, vs } = mockSDK({})
+    expect(await backend.connect({ code: 'c', codeVerifier: 'v'.repeat(43), redirectUri: 'https://x.ctfcloud.net/?vocalstack-connect=1' })).toEqual({ account: 'Acme', apiKey: 'vs_key_new' })
+    expect(vs.calls[0].path).toBe('/v1/connect/token')
+    expect(Object.keys(vs.calls[0].headers).map((h) => h.toLowerCase())).not.toContain('origin')
+    expect(new URLSearchParams(vs.calls[0].body).get('code_verifier')).toBe('v'.repeat(43))
+  })
+
+  it('checks the saved key', async () => {
+    expect(await mockSDK(install).backend.check()).toEqual({ account: 'Acme', connected: true })
+  })
+})
+
 describe('describeError', () => {
-  it('asks to reconnect on 401 and retries network failures', () => {
+  it('asks to reconnect on 401 and retries failed calls', () => {
     expect(describeError(new VocalStackAPIError(401, 'invalid_token', 'no'))).toMatchObject({ retryable: false })
     expect(describeError(new VocalStackAPIError(401, 'invalid_token', 'no')).message).toMatch(/Reconnect VocalStack/)
-    expect(describeError(new TypeError('Failed to fetch')).retryable).toBe(true)
+    expect(describeError(new ActionCallError('timeout')).retryable).toBe(true)
     expect(describeError(new VocalStackAPIError(503, 'unavailable', 'later')).retryable).toBe(true)
   })
 })

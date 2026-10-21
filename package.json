@@ -2,16 +2,19 @@
   "name": "@vocalstack/contentful",
   "version": "0.1.0",
   "private": true,
-  "description": "VocalStack for Contentful: a Transcribe button on every entry with audio.",
+  "description": "VocalStack for Contentful: a Transcribe button on every entry with audio, its VocalStack calls in an App Function.",
   "license": "MIT",
   "type": "module",
   "scripts": {
     "start": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && contentful-app-scripts build-functions --ci",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "upload": "contentful-app-scripts upload --bundle-dir ./build",
-    "upload-ci": "contentful-app-scripts upload --ci --bundle-dir ./build --organization-id $CONTENTFUL_ORG_ID --definition-id $CONTENTFUL_APP_DEF_ID --token $CONTENTFUL_ACCESS_TOKEN"
+    "upsert-actions": "contentful-app-scripts upsert-actions",
+    "deploy": "npm run upload && npm run upsert-actions",
+    "upload-ci": "contentful-app-scripts upload --ci --bundle-dir ./build --organization-id $CONTENTFUL_ORG_ID --definition-id $CONTENTFUL_APP_DEF_ID --token $CONTENTFUL_ACCESS_TOKEN",
+    "upsert-actions-ci": "contentful-app-scripts upsert-actions --ci --organization-id $CONTENTFUL_ORG_ID --definition-id $CONTENTFUL_APP_DEF_ID --token $CONTENTFUL_ACCESS_TOKEN"
   },
   "repository": {
     "type": "git",
@@ -31,6 +34,7 @@
   },
   "devDependencies": {
     "@contentful/app-scripts": "^4.1.14",
+    "@contentful/node-apps-toolkit": "^4.1.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.1.2",

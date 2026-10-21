@@ -2,27 +2,29 @@
 
 VocalStack for [Contentful](https://www.contentful.com): a **Transcribe** button on every entry with audio. The transcript is saved in a JSON Object field as text plus timed sentences, so the Content Delivery API and GraphQL return it with the entry.
 
+Every VocalStack call runs server-side in the app's [App Function](https://www.contentful.com/developers/docs/extensibility/app-framework/functions/), on Contentful. The browser never sends the API key to VocalStack; it calls the function through app actions. No server of your own is needed.
+
 ## Install
 
-A custom app ([App Framework](https://www.contentful.com/developers/docs/extensibility/app-framework/)) in your Contentful organization. Not in the Marketplace. `build/` is committed, so it uploads without building (run `npm run build` and commit `build/` with every change).
+A custom app ([App Framework](https://www.contentful.com/developers/docs/extensibility/app-framework/)) in your Contentful organization, hosted by Contentful (Functions run only on Contentful-hosted apps). Not in the Marketplace. `build/` (the frontend and `build/functions/vocalstack.js`) is committed, so it uploads without building (run `npm run build` and commit `build/` with every change).
 
 1. **Create the app.** Organization settings → **Apps** → **Create app**, named VocalStack. Turn on these locations:
    - **App configuration screen**
    - **Entry field**, for the **JSON object** field type
    - **Entry sidebar**
 
-   Under **Instance parameters**, add `audioField` (Short text, optional, display name "Audio field"). Save.
-2. **Upload the bundle** to Contentful's hosting:
+   Under **Installation parameters**, add `apiKey` of type **Secret** (display name "API key"). Under **Instance parameters**, add `audioField` (Short text, optional, display name "Audio field"). Save.
+2. **Upload the bundle and its function, then create the app actions:**
 
    ```sh
-   npm install && npm run build && npm run upload
+   npm install && npm run build && npm run deploy
    ```
 
-   `npm run upload` (`@contentful/app-scripts`) asks for the organization, the app and a management token. Without building, `npx @contentful/app-scripts upload --bundle-dir ./build` uploads the committed bundle. Or host `build/` yourself on any https static host and set it as the app's Frontend URL.
+   `npm run deploy` is `npm run upload` (the frontend and the `vocalstack` function from `contentful-app-manifest.json`, which may call only `api.vocalstack.com`) followed by `npm run upsert-actions` (the four app actions `vocalstackTranscribe`, `vocalstackStatus`, `vocalstackStop` and `vocalstackConnect`, all invoking that function). Both ask for the organization, the app and a management token; `upload-ci` and `upsert-actions-ci` take them from `CONTENTFUL_ORG_ID`, `CONTENTFUL_APP_DEF_ID` and `CONTENTFUL_ACCESS_TOKEN`. Without building, `npm run deploy` uploads the committed `build/`.
 3. **Add a Transcript field** to each content type with audio: a **JSON object** field next to its Media field.
-4. **Install it in a space**: the app's page → **Install to space**. On the configuration screen, connect a VocalStack account, pick the content types, and click **Install**.
+4. **Install it in a space**: the app's page → **Install to space**. On the configuration screen, pick the content types and paste a key, then click **Install**. Or install first and then click **Connect VocalStack**: the function redeems the one-click code, so it needs the app installed. Saving checks the key through the function (**Check connection** does it again).
 
-For development, `npm start` serves the app on `http://localhost:5173`; set that as the Frontend URL and open the app from a space it is installed in.
+For development, `npm start` serves the frontend on `http://localhost:5173`; set that as the Frontend URL and open the app from a space it is installed in. The app actions still run the uploaded function.
 
 ## What it adds
 
@@ -53,7 +55,7 @@ For development, `npm start` serves the app on `http://localhost:5173`; set that
     The field is an ordinary JSON field: it is saved with the entry's draft, published with the entry, and read like any other field (`fields.transcript` in the Content Delivery API, `transcript` as JSON in GraphQL).
 - **The app configuration screen**, where an admin connects an account, sets the spoken language and picks the content types.
 
-**Where the key is kept.** The key is an installation parameter of the app. Contentful gives installation parameters to the app wherever it runs, so the app can call VocalStack from the entry editor, and space members who can open the app's configuration can read the key. Connect with a key made for this space (one-click connect makes one, named after the space), and revoke it under **Developers → API keys** in the VocalStack dashboard if it leaks or when you uninstall the app.
+**Where the key is kept.** In the `apiKey` installation parameter, of type Secret. Contentful hands a Secret's raw value only to the app's Function, and redacts it in the App SDK and in the Content Management API read with a personal token; the configuration screen and the entry editor never read it back. The key passes through the browser once, before it is saved: when pasted, or as the one-click connect function's answer to the configuration screen. A non-secret `connected` flag tells the editor a key is saved. On later saves the configuration screen sends the key back as Contentful redacted it, which should keep the stored value; this was not tried in a live space, so if a save ever loses the key, connect again. Revoke the key under **Developers → API keys** in the VocalStack dashboard when you uninstall the app.
 
 ## Options
 
@@ -61,10 +63,10 @@ Installation parameters, set on the configuration screen:
 
 | Parameter | Default | |
 |---|---|---|
-| `apiKey` | none | A `vs_key_…` key with Read and Write, pasted or made by **Connect VocalStack**. |
+| `apiKey` | none | Secret. A `vs_key_…` key with Read and Write, pasted or made by **Connect VocalStack**. Read only by the function. |
 | `spokenLanguage` | auto-detect | A Whisper language code (`en`, `ro`, …). |
 | `contentTypes` | none | Which content types get the app: `{ [contentTypeId]: { transcriptField, audioField? } }`. `transcriptField` is a JSON Object field; it defaults to one called Transcript. |
-| `apiURL` / `dashboardURL` | `https://api.vocalstack.com` / `https://app.vocalstack.com` | Under **Advanced**. |
+| `apiURL` / `dashboardURL` | `https://api.vocalstack.com` / `https://app.vocalstack.com` | Under **Advanced**. Another API host must also be in the function's `allowNetworks`. |
 
 Instance parameter of the Transcript field (Content model → the field → **Appearance**):
 
@@ -74,13 +76,13 @@ Instance parameter of the Transcript field (Content model → the field → **Ap
 
 The entry's locale picks the asset's file and the transcript's locale: the field editor works in its own locale, the sidebar in the space's default locale.
 
-**How the audio reaches VocalStack.** Contentful serves asset files from public addresses (`//assets.ctfassets.net/…` and `//downloads.ctfassets.net/…`), so the app sends that address, made https, and VocalStack fetches the file (`POST /v1/transcriptions { url }`). Nothing is uploaded from the browser. The job runs on VocalStack, and the entry editor polls every 3 s; only one open editor polls at a time. The account is billed per second, with a 5-minute minimum per transcription.
+**How the audio reaches VocalStack.** Contentful serves asset files from public addresses (`//assets.ctfassets.net/…` and `//downloads.ctfassets.net/…`), so the app passes that address, made https, to its function, which asks VocalStack to fetch it (`POST /v1/transcriptions { url }`); the function accepts `*.ctfassets.net` addresses only. Nothing is uploaded from the browser. The job runs on VocalStack, and the entry editor calls the status action every 3 s (only one open editor polls at a time), saving `recordingId` and `status` in the field; once done it saves the transcript the function returns. The account is billed per second, with a 5-minute minimum per transcription.
 
 Spaces with embargoed assets serve files only with a signed address, which VocalStack cannot fetch; the app does not support them yet.
 
 ## One-click connect (protocol)
 
-The alternative to pasting a key: **Connect VocalStack** opens the dashboard in a new tab, the person clicks **Authenticate**, and the tab closes. This is OAuth 2.0 authorization code + PKCE (RFC 7636) with an API key as the access token, as in the Payload plugin, but run in the browser: the app has no server, and PKCE is what makes that safe. There is no client registration: the consent screen shows the `redirect_uri` host instead.
+The alternative to pasting a key: **Connect VocalStack** opens the dashboard in a new tab, the person clicks **Authenticate**, and the tab closes. This is OAuth 2.0 authorization code + PKCE (RFC 7636) with an API key as the access token, as in the Payload plugin, with the app's Function as the server. There is no client registration: the consent screen shows the `redirect_uri` host instead.
 
 ```
 Configuration screen (iframe)        Callback tab (the app's own page)    app.vocalstack.com / api.vocalstack.com
@@ -93,12 +95,14 @@ new tab ─▶ GET app/connect?response_type=code&client_name=<space> (Contentfu
                                      ◀── 302 redirect_uri&code=…&state=…
 ◀── postMessage { code, state } ──── (window.opener, same origin only)
 check state
-POST api/v1/connect/token (form) ───────────────────────────────────────▶ grant_type=authorization_code, code,
-                                                                           code_verifier, redirect_uri
-                                                                           verify, burn the code, create the key
-◀── { access_token: "vs_key_…", token_type: "api_key", key_id, account: { name } }
+app action vocalstackConnect { code, codeVerifier, redirectUri }
+  ─▶ App Function (on Contentful, no Origin) ─ POST api/v1/connect/token (form) ─▶ grant_type=authorization_code, code,
+                                                                                   code_verifier, redirect_uri
+                                                                                   verify, burn the code, create the key
+                                             ◀── { access_token: "vs_key_…", token_type: "api_key", key_id, account: { name } }
+◀── { apiKey, account }
 ── postMessage { ok, message } ────▶ "Connected", tab closes
-Save the configuration: the key becomes the apiKey installation parameter
+Save the configuration: the key becomes the Secret apiKey installation parameter
 ```
 
 Cancel redirects with `?error=access_denied&state=…`. If the tab lost track of the configuration screen, it shows its address to paste there instead. The key appears in the dashboard's API keys list as `<space name> (Contentful)`, where it can be revoked.

@@ -19,12 +19,13 @@ import {
 } from '@contentful/f36-components'
 import tokens from '@contentful/f36-tokens'
 import { useSDK } from '@contentful/react-apps-toolkit'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { AppInstallationParameters, ContentTypeSetting } from '../types.js'
 
-import { accountLabel, DEFAULT_API_URL, DEFAULT_DASHBOARD_URL, VocalStackAPI, VocalStackAPIError } from '../api.js'
+import { DEFAULT_API_URL, DEFAULT_DASHBOARD_URL } from '../api.js'
 import { type FieldDef, isMediaField, isObjectField } from '../audio.js'
+import { appActionBackend } from '../backend.js'
 import { Logo } from '../components/Brand.js'
 import { type ConnectResult, type PendingConnect, beginConnect, callbackURL, CONNECT_MESSAGE, finishConnect, readCallback } from '../connect.js'
 import { buildTargetState, defaultTranscriptField } from '../config.js'
@@ -44,18 +45,24 @@ const ConfigScreen = () => {
   const [error, setError] = useState<string>()
   const [pending, setPending] = useState<PendingConnect>()
   const [pasted, setPasted] = useState('')
+  const [installed, setInstalled] = useState(false)
+  const [status, setStatus] = useState<string>()
 
-  const apiURL = params.apiURL || DEFAULT_API_URL
+  const backend = useMemo(() => appActionBackend(sdk), [sdk])
+  // The saved key is a Secret parameter: redacted here, so `connected` says whether there is one.
+  const connected = Boolean(params.apiKey || params.connected)
   const dashboardURL = params.dashboardURL || DEFAULT_DASHBOARD_URL
 
   useEffect(() => {
     void (async () => {
-      const [saved, types, space] = await Promise.all([
+      const [saved, types, space, isInstalled] = await Promise.all([
         sdk.app.getParameters<AppInstallationParameters>(),
         sdk.cma.contentType.getMany({ query: { limit: 1000 } }).then((r) => r.items as ContentType[]),
         sdk.cma.space.get({ spaceId: sdk.ids.space }).catch(() => undefined),
+        sdk.app.isInstalled(),
       ])
       setParams(saved ?? {})
+      setInstalled(isInstalled)
       setContentTypes(types)
       setSpaceName(space?.name)
       const initial: Record<string, Choice> = {}
@@ -70,46 +77,63 @@ const ConfigScreen = () => {
   }, [sdk])
 
   const onConfigure = useCallback(async () => {
-    if (!params.apiKey) {
-      sdk.notifier.error('Connect VocalStack first: paste an API key or click Connect VocalStack.')
-      return false
-    }
     const selected: Record<string, ContentTypeSetting> = {}
     for (const [id, c] of Object.entries(choices)) {
       if (c.enabled && c.transcriptField) selected[id] = c.audioField ? { audioField: c.audioField, transcriptField: c.transcriptField } : { transcriptField: c.transcriptField }
     }
+    // An unchanged key goes back as Contentful redacted it; a new one replaces it.
     const parameters: AppInstallationParameters = {
       ...params,
+      connected,
       apiURL: params.apiURL?.trim() || undefined,
       contentTypes: selected,
       dashboardURL: params.dashboardURL?.trim() || undefined,
       spokenLanguage: params.spokenLanguage?.trim() || undefined,
     }
     return { parameters, targetState: buildTargetState(selected) }
-  }, [choices, params, sdk])
+  }, [choices, connected, params])
 
   useEffect(() => {
     sdk.app.onConfigure(() => onConfigure())
   }, [sdk, onConfigure])
 
-  const applyKey = (apiKey: string, account: string | undefined) => {
-    setParams((p) => ({ ...p, account, apiKey }))
-    setKeyInput('')
-    sdk.notifier.success(`Connected${account ? ` as ${account}` : ''}. Save the configuration to keep the key.`)
-  }
-
-  const checkKey = async () => {
-    const apiKey = keyInput.trim()
-    setError(undefined)
-    if (!apiKey.startsWith('vs_key_')) return setError('A VocalStack API key starts with vs_key_.')
+  /** Ask the App Function whether the saved key works. Only after a save: it reads the stored key. */
+  const check = useCallback(async () => {
     setChecking(true)
+    setError(undefined)
     try {
-      applyKey(apiKey, accountLabel(await new VocalStackAPI(apiKey, apiURL).me()))
+      const res = await backend.check()
+      setStatus(res.account ? `Connected to VocalStack as ${res.account}.` : 'Connected to VocalStack.')
+      if (res.account) setParams((p) => ({ ...p, account: res.account }))
     } catch (err) {
-      setError(err instanceof VocalStackAPIError && err.status === 401 ? 'VocalStack refused that key.' : `Could not check the key: ${(err as Error).message}`)
+      setStatus(undefined)
+      setError(`VocalStack did not accept the saved key: ${(err as Error).message}`)
     } finally {
       setChecking(false)
     }
+  }, [backend])
+
+  useEffect(() => {
+    sdk.app.onConfigurationCompleted((err) => {
+      if (err) return
+      setInstalled(true)
+      void check()
+    })
+  }, [check, sdk])
+
+  const applyKey = (apiKey: string, account: string | undefined) => {
+    setParams((p) => ({ ...p, account, apiKey, connected: true }))
+    setKeyInput('')
+    setStatus(undefined)
+    sdk.notifier.success(`${account ? `Connected as ${account}. ` : ''}Save the configuration to keep the key.`)
+  }
+
+  const useTypedKey = () => {
+    const apiKey = keyInput.trim()
+    setError(undefined)
+    if (!apiKey.startsWith('vs_key_')) return setError('A VocalStack API key starts with vs_key_.')
+    // Checked by the App Function once saved: the browser never calls VocalStack with it.
+    applyKey(apiKey, undefined)
   }
 
   // The callback tab hands back the dashboard's answer; redeem it and tell the tab how it went.
@@ -120,7 +144,7 @@ const ConfigScreen = () => {
       const p = pendingRef.current
       if (!p) return { message: 'This connect link has expired. Start again from the app configuration.', ok: false }
       try {
-        const { account, apiKey } = await finishConnect(p, result, apiURL)
+        const { account, apiKey } = await finishConnect(p, result, backend)
         setPending(undefined)
         applyKey(apiKey, account)
         return { message: account ? `Connected to VocalStack as ${account}. Save the app configuration in Contentful to keep it.` : 'Connected to VocalStack.', ok: true }
@@ -130,7 +154,7 @@ const ConfigScreen = () => {
         return { message: (err as Error).message, ok: false }
       }
     },
-    [apiURL],
+    [backend],
   )
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
@@ -182,12 +206,19 @@ const ConfigScreen = () => {
 
             <section>
               <Heading as="h2">Connection</Heading>
-              {params.apiKey ? (
+              {connected ? (
                 <Stack alignItems="flex-start" flexDirection="column" spacing="spacingS">
-                  <Paragraph marginBottom="none">Connected to VocalStack{params.account ? ` as ${params.account}` : ''}.</Paragraph>
-                  <Button onClick={() => setParams((p) => ({ ...p, account: undefined, apiKey: undefined }))} size="small" variant="secondary">
-                    Disconnect
-                  </Button>
+                  <Paragraph marginBottom="none">{status ?? `Connected to VocalStack${params.account ? ` as ${params.account}` : ''}.`}</Paragraph>
+                  <Flex gap="spacingXs">
+                    {installed && (
+                      <Button isLoading={checking} onClick={() => void check()} size="small" variant="secondary">
+                        Check connection
+                      </Button>
+                    )}
+                    <Button onClick={() => setParams((p) => ({ ...p, account: undefined, apiKey: undefined, connected: false }))} size="small" variant="secondary">
+                      Disconnect
+                    </Button>
+                  </Flex>
                   <Text fontColor="gray600" fontSize="fontSizeS">
                     Disconnecting removes the key from this space when you save. Revoke it under Developers → API keys in VocalStack too.
                   </Text>
@@ -196,11 +227,13 @@ const ConfigScreen = () => {
                 <Stack alignItems="stretch" flexDirection="column" spacing="spacingM">
                   <Paragraph marginBottom="none">Connect a VocalStack account to transcribe audio. Transcriptions use that account's credit.</Paragraph>
                   <div>
-                    <Button isLoading={Boolean(pending)} onClick={() => void connect()} variant="primary">
+                    <Button isDisabled={!installed} isLoading={Boolean(pending)} onClick={() => void connect()} variant="primary">
                       {pending ? 'Waiting for VocalStack…' : 'Connect VocalStack'}
                     </Button>
                     <Text as="p" fontColor="gray600" fontSize="fontSizeS" marginTop="spacingXs">
-                      Opens VocalStack in a new tab; click Authenticate there.
+                      {installed
+                        ? 'Opens VocalStack in a new tab; click Authenticate there.'
+                        : 'Install the app first (the key is redeemed by its App Function), then connect here. Or paste a key below.'}
                     </Text>
                   </div>
                   {pending && (
@@ -222,14 +255,14 @@ const ConfigScreen = () => {
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' && keyInput.trim()) {
                             e.preventDefault()
-                            void checkKey()
+                            useTypedKey()
                           }
                         }}
                         placeholder="vs_key_…"
                         type="password"
                         value={keyInput}
                       />
-                      <Button isDisabled={!keyInput.trim()} isLoading={checking} onClick={() => void checkKey()} variant="secondary">
+                      <Button isDisabled={!keyInput.trim()} onClick={useTypedKey} variant="secondary">
                         Use key
                       </Button>
                     </Flex>
@@ -249,8 +282,8 @@ const ConfigScreen = () => {
                 </Note>
               )}
               <Note style={{ marginTop: tokens.spacingM }} variant="neutral">
-                The key is stored in this app's installation parameters. Space members who can open this configuration can read it, and the app uses it from the browser.
-                Use a key made for this space, and revoke it in the VocalStack dashboard if it leaks.
+                The key is saved as a Secret installation parameter: Contentful hands it only to the app's Function, which makes every VocalStack call. This screen and the
+                entry editor never read it back. Revoke it under Developers → API keys in VocalStack if you uninstall the app.
               </Note>
             </section>
 

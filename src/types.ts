@@ -9,18 +9,20 @@ export type ContentTypeSetting = {
 /** Installation parameters, set on the app configuration screen. */
 export type AppInstallationParameters = {
   /**
-   * A VocalStack API key (`vs_key_…`, Read + Write). Installation parameters are
-   * readable by every space member who can open the app's configuration, and by
-   * the app in the entry editor: use a key made for this space.
+   * A VocalStack API key (`vs_key_…`, Read + Write). Defined as a Secret parameter on
+   * the app definition: Contentful hands its raw value to the App Function only, and
+   * redacts it everywhere else (the App SDK, the CMA with a personal token).
    */
   apiKey?: string
+  /** Set when a key was saved, so the editor knows without reading the key. */
+  connected?: boolean
   /** The account the key acts for, as VocalStack named it when it was checked. */
   account?: string
   /** A Whisper language code (`en`, `ro`, …). Leave out to auto-detect. */
   spokenLanguage?: string
   /** Content type id → its transcript field and audio field. */
   contentTypes?: Record<string, ContentTypeSetting>
-  /** Default https://api.vocalstack.com */
+  /** Default https://api.vocalstack.com (the function's allowNetworks must list its host). */
   apiURL?: string
   /** Default https://app.vocalstack.com */
   dashboardURL?: string

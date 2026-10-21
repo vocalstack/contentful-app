@@ -1,0 +1,67 @@
+{
+  "functions": [
+    {
+      "id": "vocalstack",
+      "name": "VocalStack",
+      "description": "Every VocalStack call: transcribe, job status, stop, and one-click connect. Holds the API key.",
+      "path": "functions/vocalstack.js",
+      "entryFile": "./functions/vocalstack.ts",
+      "allowNetworks": ["api.vocalstack.com"],
+      "accepts": ["appaction.call"]
+    }
+  ],
+  "actions": [
+    {
+      "id": "vocalstackTranscribe",
+      "name": "VocalStack: transcribe",
+      "description": "Start transcribing a Contentful audio asset.",
+      "type": "function-invocation",
+      "functionId": "vocalstack",
+      "category": "Custom",
+      "parameters": [
+        { "id": "op", "name": "Operation", "type": "Enum", "options": ["transcribe"], "required": true },
+        { "id": "url", "name": "Asset file URL", "type": "Symbol", "required": true },
+        { "id": "name", "name": "Transcription name", "type": "Symbol", "required": true },
+        { "id": "idempotencyKey", "name": "Idempotency key", "type": "Symbol", "required": true }
+      ]
+    },
+    {
+      "id": "vocalstackStatus",
+      "name": "VocalStack: status",
+      "description": "Where a job stands, with its sentences; without a recording, check the saved key.",
+      "type": "function-invocation",
+      "functionId": "vocalstack",
+      "category": "Custom",
+      "parameters": [
+        { "id": "op", "name": "Operation", "type": "Enum", "options": ["status"], "required": true },
+        { "id": "recordingId", "name": "Recording id", "type": "Symbol", "required": false }
+      ]
+    },
+    {
+      "id": "vocalstackStop",
+      "name": "VocalStack: stop",
+      "description": "Stop a job before it is done.",
+      "type": "function-invocation",
+      "functionId": "vocalstack",
+      "category": "Custom",
+      "parameters": [
+        { "id": "op", "name": "Operation", "type": "Enum", "options": ["stop"], "required": true },
+        { "id": "recordingId", "name": "Recording id", "type": "Symbol", "required": true }
+      ]
+    },
+    {
+      "id": "vocalstackConnect",
+      "name": "VocalStack: connect",
+      "description": "Redeem a one-click connect code for an API key.",
+      "type": "function-invocation",
+      "functionId": "vocalstack",
+      "category": "Custom",
+      "parameters": [
+        { "id": "op", "name": "Operation", "type": "Enum", "options": ["connect"], "required": true },
+        { "id": "code", "name": "Code", "type": "Symbol", "required": true },
+        { "id": "codeVerifier", "name": "Code verifier", "type": "Symbol", "required": true },
+        { "id": "redirectUri", "name": "Redirect URI", "type": "Symbol", "required": true }
+      ]
+    }
+  ]
+}
