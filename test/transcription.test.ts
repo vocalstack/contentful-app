@@ -80,11 +80,14 @@ describe('checkJob', () => {
   })
 
   it('goes back to the earlier transcript when the job was stopped elsewhere', async () => {
-    const f = mockEntryField(processing)
-    const { backend, vs } = mockSDK(install)
-    vs.state.job = job({ errorCode: 'stopped', state: 'failed' })
-    expect((await checkJob(backend, f.target, 'rec_1')).kind).toBe('stopped')
-    expect(f.value()).toMatchObject({ status: 'done', transcript: 'Old.' })
+    // VocalStack answers `stopped` (as the API does today); `failed` + `stopped` is the older shape.
+    for (const stopped of [job({ errorCode: 'stopped', state: 'stopped' }), job({ errorCode: 'stopped', state: 'failed' })]) {
+      const f = mockEntryField(processing)
+      const { backend, vs } = mockSDK(install)
+      vs.state.job = stopped
+      expect((await checkJob(backend, f.target, 'rec_1')).kind).toBe('stopped')
+      expect(f.value()).toMatchObject({ status: 'done', transcript: 'Old.' })
+    }
   })
 
   it('leaves the field alone when it moved on to another job', async () => {

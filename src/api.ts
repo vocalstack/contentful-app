@@ -6,11 +6,12 @@
 export const DEFAULT_API_URL = 'https://api.vocalstack.com'
 export const DEFAULT_DASHBOARD_URL = 'https://app.vocalstack.com'
 
-export type JobState = 'cropping' | 'done' | 'failed' | 'fetching' | 'queued' | 'transcribing'
+/** `stopped`: its owner stopped it before it was done (`errorCode` `stopped` too). */
+export type JobState = 'cropping' | 'done' | 'failed' | 'fetching' | 'queued' | 'stopped' | 'transcribing'
 
 export type Job = {
   error?: null | string
-  /** Why a failed job failed; `stopped` when its owner stopped it. */
+  /** Why a failed job failed; `stopped` on a stopped job. */
   errorCode?: null | string
   progress: { pct: number; phase?: null | string; phasePct?: null | number; processedS?: number; totalS?: null | number }
   recordingId: string
@@ -94,7 +95,7 @@ export class VocalStackAPI {
     return this.request<Job>('GET', `/v1/recordings/${encodeURIComponent(recordingId)}/job`)
   }
 
-  /** Stop a job before it is done. Its job fails with `stopped`; what was transcribed so far stays in VocalStack. */
+  /** Stop a job before it is done. Its job ends `stopped`; what was transcribed so far stays in VocalStack. */
   stop(recordingId: string, reason?: string) {
     return this.request<unknown>('POST', `/v1/recordings/${encodeURIComponent(recordingId)}/stop`, { reason: reason ?? null })
   }

@@ -87,7 +87,8 @@ export async function startTranscription(backend: Backend, target: FieldTarget, 
  */
 export async function checkJob(backend: Backend, target: FieldTarget, recordingId: string): Promise<Outcome> {
   const { job, transcript } = await backend.status(recordingId)
-  if (job.state === 'failed' && job.errorCode === 'stopped') return settle(target, recordingId, 'stopped', stoppedState)
+  // `stopped` is its own state; older answers said `failed` with errorCode `stopped`.
+  if (job.state === 'stopped' || (job.state === 'failed' && job.errorCode === 'stopped')) return settle(target, recordingId, 'stopped', stoppedState)
   if (job.state === 'failed' || job.state === 'cropping') {
     const error = job.state === 'cropping' ? 'VocalStack is waiting for a crop window; open the transcription in VocalStack.' : (job.error ?? 'The transcription failed.')
     return settle(target, recordingId, 'failed', (prev) => failedState(prev, error))
