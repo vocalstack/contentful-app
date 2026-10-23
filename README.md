@@ -2,6 +2,8 @@
 
 VocalStack for [Contentful](https://www.contentful.com): a **Transcribe** button on every entry with audio. The transcript is saved in a JSON Object field as text plus timed sentences, so the Content Delivery API and GraphQL return it with the entry.
 
+Read more about the [VocalStack transcription app for Contentful](https://vocalstack.com/contentful-transcription-app/) on the [VocalStack website](https://vocalstack.com/).
+
 Every VocalStack call runs server-side in the app's [App Function](https://www.contentful.com/developers/docs/extensibility/app-framework/functions/), on Contentful. The browser never sends the API key to VocalStack; it calls the function through app actions. No server of your own is needed.
 
 ## Install
