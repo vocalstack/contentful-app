@@ -1,0 +1,86 @@
+# Releases the app when main carries a version that has no release yet: bump
+# `version` in package.json, rebuild and commit `build/`, push to main, and this
+# checks it (types, tests, and that the committed `build/` is what the source
+# builds), tags v<version> and makes the GitHub release people upload from.
+# A manual run does the same for the version on main.
+#
+# The app is a custom app each Contentful organization uploads for itself, so
+# there is no registry to publish to. When this repository has the variables
+# CONTENTFUL_ORG_ID and CONTENTFUL_APP_DEF_ID and, in the `contentful` environment,
+# the secret CONTENTFUL_ACCESS_TOKEN, the `deploy` job also uploads the release to
+# that one app definition (VocalStack's own); without the variables it is skipped.
+
+name: release
+
+on:
+  push:
+    branches: [main]
+    paths: [package.json]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # tag + GitHub release
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: version
+        id: v
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: install + check + test + build
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npm run build
+      - name: the committed build/ is what the source builds
+        run: |
+          if [ -n "$(git status --porcelain -- build)" ]; then
+            git status --short -- build
+            echo "::error::build/ is not what this source builds: run npm run build and commit build/"; exit 1
+          fi
+      - name: tag + GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="v${{ steps.v.outputs.version }}"
+          if gh release view "$v" >/dev/null 2>&1; then
+            echo "$v is already released"
+          else
+            case "$v" in *-*) pre=--prerelease ;; *) pre= ;; esac
+            gh release create "$v" --target "$GITHUB_SHA" --title "$v" --generate-notes $pre
+          fi
+
+  deploy:
+    needs: release
+    if: vars.CONTENTFUL_APP_DEF_ID != ''
+    runs-on: ubuntu-latest
+    environment: contentful
+    permissions:
+      contents: read
+    env:
+      CONTENTFUL_ORG_ID: ${{ vars.CONTENTFUL_ORG_ID }}
+      CONTENTFUL_APP_DEF_ID: ${{ vars.CONTENTFUL_APP_DEF_ID }}
+      CONTENTFUL_ACCESS_TOKEN: ${{ secrets.CONTENTFUL_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: upload the bundle and the function
+        run: npm run upload-ci
+      - name: app actions
+        run: npm run upsert-actions-ci
