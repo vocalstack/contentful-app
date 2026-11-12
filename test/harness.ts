@@ -21,7 +21,7 @@ export const job = (patch: Partial<Job> = {}): Job => ({ progress: { pct: 0 }, r
 
 /** VocalStack, as the App Function's fetch sees it. */
 export function mockVocalStack() {
-  const state = { job: job(), stopStatus: 200 }
+  const state: { job: Job; jobStatus: number; stopStatus: number; workspace?: unknown } = { job: job(), jobStatus: 200, stopStatus: 200 }
   const calls: { body?: string; headers: Record<string, string>; method: string; path: string }[] = []
   const reply = (status: number, body: unknown) => new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' }, status })
   const fetchImpl = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -29,10 +29,10 @@ export function mockVocalStack() {
     const method = init.method ?? 'GET'
     calls.push({ body: typeof init.body === 'string' ? init.body : init.body instanceof URLSearchParams ? init.body.toString() : undefined, headers: (init.headers ?? {}) as Record<string, string>, method, path: url.pathname })
     const route = `${method} ${url.pathname}`
-    if (route === 'POST /v1/connect/token') return reply(200, { access_token: 'vs_key_new', account: { name: 'Acme' }, token_type: 'api_key' })
-    if (route === 'GET /v1/me') return reply(200, { principal: { name: 'Acme' } })
+    if (route === 'POST /v1/connect/token') return reply(200, { access_token: 'vs_key_new', account: { name: 'Acme' }, token_type: 'api_key', ...(state.workspace ? { workspace: state.workspace } : {}) })
+    if (route === 'GET /v1/me') return reply(200, { principal: { name: 'Acme' }, ...(state.workspace ? { workspace: state.workspace } : {}) })
     if (route === 'POST /v1/transcriptions') return reply(201, { id: 'tx_1', job: state.job, name: 'Episode 1' })
-    if (route === 'GET /v1/recordings/rec_1/job') return reply(200, state.job)
+    if (route === 'GET /v1/recordings/rec_1/job') return state.jobStatus === 200 ? reply(200, state.job) : reply(state.jobStatus, { error: { code: 'not_found', message: 'recording not found' } })
     if (route === 'GET /v1/recordings/rec_1/transcript') return reply(200, transcript)
     if (route === 'POST /v1/recordings/rec_1/stop') return state.stopStatus === 200 ? reply(200, {}) : reply(409, { error: { code: 'conflict', message: 'Over.' } })
     return reply(404, { error: { code: 'not_found', message: route } })

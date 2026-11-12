@@ -130,6 +130,39 @@ describe('the App Function', () => {
   it('checks the saved key', async () => {
     expect(await mockSDK(install).backend.check()).toEqual({ account: 'Acme', connected: true })
   })
+
+  it('answers the workspace picked on the consent screen with the new key', async () => {
+    const { backend, vs } = mockSDK({})
+    vs.state.workspace = { iconUrl: '/workspace-icons/ws_1?v=2&exp=9&sig=s', id: 'ws_1', name: 'North Radio', personal: false, plan: 'ignored' }
+    expect(await backend.connect({ code: 'c', codeVerifier: 'v'.repeat(43), redirectUri: 'https://x.ctfcloud.net/?vocalstack-connect=1' })).toEqual({
+      account: 'North Radio',
+      apiKey: 'vs_key_new',
+      workspace: { iconUrl: '/workspace-icons/ws_1?v=2&exp=9&sig=s', id: 'ws_1', name: 'North Radio', personal: false },
+    })
+  })
+
+  it('answers the workspace of the saved key, pasted or not, when checking it', async () => {
+    const { backend, vs } = mockSDK(install)
+    vs.state.workspace = { iconUrl: null, id: 'ws_me', name: 'Personal workspace', personal: true }
+    expect(await backend.check()).toEqual({ account: 'Personal workspace', connected: true, workspace: { iconUrl: null, id: 'ws_me', name: 'Personal workspace', personal: true } })
+    expect(vs.calls[0].headers.authorization).toBe('Bearer vs_key_secret')
+  })
+})
+
+describe('a transcription left in the workspace connected before', () => {
+  it('says so in a plain sentence when the new key gets 404 for its job, and stops waiting', async () => {
+    const f = mockEntryField(processing)
+    const { backend, vs } = mockSDK(install)
+    vs.state.jobStatus = 404
+    const err = await checkJob(backend, f.target, 'rec_1').catch((e) => e)
+    expect(err).toBeInstanceOf(VocalStackAPIError)
+    expect(describeError(err)).toEqual({
+      message: 'VocalStack cannot find this transcription in the connected workspace. It was made in another workspace, or deleted there. Transcribe the audio again to make it in this one.',
+      retryable: false,
+    })
+    expect(f.setValue).not.toHaveBeenCalled()
+    expect(f.value()?.transcript).toBe('Old.')
+  })
 })
 
 describe('describeError', () => {

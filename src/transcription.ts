@@ -121,6 +121,8 @@ export async function stopTranscription(backend: Backend, target: FieldTarget): 
 export function describeError(err: unknown): { message: string; retryable: boolean } {
   if (err instanceof VocalStackAPIError) {
     if (err.status === 401) return { message: err.code === 'not_connected' ? 'Connect VocalStack in the app configuration first.' : 'The VocalStack API key was refused. Reconnect VocalStack in the app configuration.', retryable: false }
+    // A job made with an earlier key, in the workspace this space was connected to before.
+    if (err.status === 404) return { message: 'VocalStack cannot find this transcription in the connected workspace. It was made in another workspace, or deleted there. Transcribe the audio again to make it in this one.', retryable: false }
     if (err.status === 429 || err.status >= 500) return { message: err.message, retryable: true }
     return { message: err.message, retryable: false }
   }

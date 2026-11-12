@@ -24,7 +24,7 @@ A custom app ([App Framework](https://www.contentful.com/developers/docs/extensi
 
    `npm run deploy` is `npm run upload` (the frontend and the `vocalstack` function from `contentful-app-manifest.json`, which may call only `api.vocalstack.com`) followed by `npm run upsert-actions` (the four app actions `vocalstackTranscribe`, `vocalstackStatus`, `vocalstackStop` and `vocalstackConnect`, all invoking that function). Both ask for the organization, the app and a management token; `upload-ci` and `upsert-actions-ci` take them from `CONTENTFUL_ORG_ID`, `CONTENTFUL_APP_DEF_ID` and `CONTENTFUL_ACCESS_TOKEN`. Without building, `npm run deploy` uploads the committed `build/`.
 3. **Add a Transcript field** to each content type with audio: a **JSON object** field next to its Media field.
-4. **Install it in a space**: the app's page → **Install to space**. On the configuration screen, pick the content types and paste a key, then click **Install**. Or install first and then click **Connect VocalStack**: the function redeems the one-click code, so it needs the app installed. Saving checks the key through the function (**Check connection** does it again).
+4. **Install it in a space**: the app's page → **Install to space**. On the configuration screen, pick the content types and paste a key, then click **Install**. Or install first and then click **Connect VocalStack** and pick the VocalStack workspace on the consent screen: the function redeems the one-click code, so it needs the app installed. Saving checks the key through the function (**Check connection** does it again) and shows the workspace the key belongs to.
 
 For development, `npm start` serves the frontend on `http://localhost:5173`; set that as the Frontend URL and open the app from a space it is installed in. The app actions still run the uploaded function.
 
@@ -57,7 +57,11 @@ Tests: `npm test` (unit), and `VOCALSTACK_API_KEY=vs_key_… npm run e2e`, which
     ```
 
     The field is an ordinary JSON field: it is saved with the entry's draft, published with the entry, and read like any other field (`fields.transcript` in the Content Delivery API, `transcript` as JSON in GraphQL).
-- **The app configuration screen**, where an admin connects an account, sets the spoken language and picks the content types.
+- **The app configuration screen**, where an admin connects a VocalStack workspace, sets the spoken language and picks the content types.
+
+**Which workspace.** A VocalStack API key belongs to one workspace: every transcription from the space lands there and uses its credit. Once connected, the configuration screen shows **Workspace**, its name and its mark as the VocalStack dashboard draws it (its own icon; a person for the personal workspace; else its initials on its colour). The name and icon are read again from `GET /v1/me`, through the function, when the screen opens and on **Check connection**, so a rename or a new icon shows up, and a pasted key shows its workspace too once saved. Against a VocalStack API older than workspaces the screen reads "Connected to VocalStack as …" as before.
+
+A key never moves to another workspace. **Change** runs one-click connect again: pick another workspace on the consent screen and click **Authenticate**, which makes a new key for that workspace; save the configuration to keep it. Cancelling, closing the tab or a failed connect leaves the current connection as it was. Revoke the old key under **Developers → API keys** in the VocalStack dashboard afterwards. Transcripts already saved in entries stay as they are. A job still running under the old key cannot be read with the new one (VocalStack answers 404): its field says the transcription is not in the connected workspace, and **Transcribe** starts it again in the new one.
 
 **Where the key is kept.** In the `apiKey` installation parameter, of type Secret. Contentful hands a Secret's raw value only to the app's Function, and redacts it in the App SDK and in the Content Management API read with a personal token; the configuration screen and the entry editor never read it back. The key passes through the browser once, before it is saved: when pasted, or as the one-click connect function's answer to the configuration screen. A non-secret `connected` flag tells the editor a key is saved. On later saves the configuration screen sends the key back as Contentful redacted it, which should keep the stored value; this was not tried in a live space, so if a save ever loses the key, connect again. Revoke the key under **Developers → API keys** in the VocalStack dashboard when you uninstall the app.
 
@@ -68,6 +72,7 @@ Installation parameters, set on the configuration screen:
 | Parameter | Default | |
 |---|---|---|
 | `apiKey` | none | Secret. A `vs_key_…` key with Read and Write, pasted or made by **Connect VocalStack**. Read only by the function. |
+| `workspace` | none | `{ id, name, personal }`: the workspace the key belongs to, as VocalStack answered when the key was made or last checked. Not secret. `account` holds its name (or, from an older API, the name it gave), and `connected` says a key is saved. |
 | `spokenLanguage` | auto-detect | A Whisper language code (`en`, `ro`, …). |
 | `contentTypes` | none | Which content types get the app: `{ [contentTypeId]: { transcriptField, audioField? } }`. `transcriptField` is a JSON Object field; it defaults to one called Transcript. |
 | `apiURL` / `dashboardURL` | `https://api.vocalstack.com` / `https://app.vocalstack.com` | Under **Advanced**. Another API host must also be in the function's `allowNetworks`. |
@@ -80,13 +85,13 @@ Instance parameter of the Transcript field (Content model → the field → **Ap
 
 The entry's locale picks the asset's file and the transcript's locale: the field editor works in its own locale, the sidebar in the space's default locale.
 
-**How the audio reaches VocalStack.** Contentful serves asset files from public addresses (`//assets.ctfassets.net/…` and `//downloads.ctfassets.net/…`), so the app passes that address, made https, to its function, which asks VocalStack to fetch it (`POST /v1/transcriptions { url }`); the function accepts `*.ctfassets.net` addresses only. Nothing is uploaded from the browser. The job runs on VocalStack, and the entry editor calls the status action every 3 s (only one open editor polls at a time), saving `recordingId` and `status` in the field; once done it saves the transcript the function returns. The account is billed per second, with a 5-minute minimum per transcription.
+**How the audio reaches VocalStack.** Contentful serves asset files from public addresses (`//assets.ctfassets.net/…` and `//downloads.ctfassets.net/…`), so the app passes that address, made https, to its function, which asks VocalStack to fetch it (`POST /v1/transcriptions { url }`); the function accepts `*.ctfassets.net` addresses only. Nothing is uploaded from the browser. The job runs on VocalStack, and the entry editor calls the status action every 3 s (only one open editor polls at a time), saving `recordingId` and `status` in the field; once done it saves the transcript the function returns. The workspace is billed per second, with a 5-minute minimum per transcription.
 
 Spaces with embargoed assets serve files only with a signed address, which VocalStack cannot fetch; the app does not support them yet.
 
 ## One-click connect (protocol)
 
-The alternative to pasting a key: **Connect VocalStack** opens the dashboard in a new tab, the person clicks **Authenticate**, and the tab closes. This is OAuth 2.0 authorization code + PKCE (RFC 7636) with an API key as the access token, as in the Payload plugin, with the app's Function as the server. There is no client registration: the consent screen shows the `redirect_uri` host instead.
+The alternative to pasting a key: **Connect VocalStack** opens the dashboard in a new tab, the person picks the workspace and clicks **Authenticate**, and the tab closes. **Change** on a connected screen runs the same flow for another workspace. This is OAuth 2.0 authorization code + PKCE (RFC 7636) with an API key as the access token, as in the Payload plugin, with the app's Function as the server. There is no client registration: the consent screen shows the `redirect_uri` host instead.
 
 ```
 Configuration screen (iframe)        Callback tab (the app's own page)    app.vocalstack.com / api.vocalstack.com
@@ -94,7 +99,7 @@ Configuration screen (iframe)        Callback tab (the app's own page)    app.vo
 click Connect: state, verifier (memory only)
 new tab ─▶ GET app/connect?response_type=code&client_name=<space> (Contentful)&redirect_uri=<app URL>?vocalstack-connect=1
            &state=…&code_challenge=…&code_challenge_method=S256&scope=read write
-           (sign in if needed; pick the organization; "<app host> wants to transcribe with VocalStack")
+           (sign in if needed; pick the workspace; "<app host> wants to transcribe with VocalStack")
            click Authenticate ─▶ API stores a single-use grant (code hash, challenge, redirect, scopes, principal; 2 min)
                                      ◀── 302 redirect_uri&code=…&state=…
 ◀── postMessage { code, state } ──── (window.opener, same origin only)
@@ -103,8 +108,9 @@ app action vocalstackConnect { code, codeVerifier, redirectUri }
   ─▶ App Function (on Contentful, no Origin) ─ POST api/v1/connect/token (form) ─▶ grant_type=authorization_code, code,
                                                                                    code_verifier, redirect_uri
                                                                                    verify, burn the code, create the key
-                                             ◀── { access_token: "vs_key_…", token_type: "api_key", key_id, account: { name } }
-◀── { apiKey, account }
+                                             ◀── { access_token: "vs_key_…", token_type: "api_key", key_id, account: { name },
+                                                   workspace: { id, name, personal, iconUrl } }
+◀── { apiKey, account, workspace }
 ── postMessage { ok, message } ────▶ "Connected", tab closes
 Save the configuration: the key becomes the Secret apiKey installation parameter
 ```

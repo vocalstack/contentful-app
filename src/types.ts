@@ -6,6 +6,14 @@ export type ContentTypeSetting = {
   audioField?: string
 }
 
+/** The VocalStack workspace the key belongs to, as kept in the installation parameters. */
+export type SavedWorkspace = {
+  id: string
+  /** As the VocalStack dashboard shows it ("Personal workspace" for an unnamed personal one). */
+  name: string
+  personal: boolean
+}
+
 /** Installation parameters, set on the app configuration screen. */
 export type AppInstallationParameters = {
   /**
@@ -16,8 +24,10 @@ export type AppInstallationParameters = {
   apiKey?: string
   /** Set when a key was saved, so the editor knows without reading the key. */
   connected?: boolean
-  /** The account the key acts for, as VocalStack named it when it was checked. */
+  /** The name the key acts under: its workspace's name, or what an older API named. */
   account?: string
+  /** The workspace the key belongs to, as VocalStack answered when it was made or last checked. */
+  workspace?: SavedWorkspace
   /** A Whisper language code (`en`, `ro`, …). Leave out to auto-detect. */
   spokenLanguage?: string
   /** Content type id → its transcript field and audio field. */

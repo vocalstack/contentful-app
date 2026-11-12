@@ -4,6 +4,7 @@ import type { AppInstallationParameters } from '../src/types.js'
 
 import { type ActionError, type ActionParams, type CompactTranscript, LIVE_SENTENCES } from '../src/actions.js'
 import { type Transcript, accountLabel, DEFAULT_API_URL, VocalStackAPI, VocalStackAPIError } from '../src/api.js'
+import { readWorkspace } from '../src/workspace.js'
 
 /**
  * Every VocalStack call the app makes, server-side on Contentful. The API key is the
@@ -66,9 +67,11 @@ export async function run(params: ActionParams, install: AppInstallationParamete
         headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
         method: 'POST',
       })
-      const token = (await res.json().catch(() => ({}))) as { access_token?: string; account?: { name?: string }; error?: string; error_description?: string }
+      const token = (await res.json().catch(() => ({}))) as { access_token?: string; account?: { name?: string }; error?: string; error_description?: string; workspace?: unknown }
       if (!res.ok || !token.access_token) return refused(res.status, token.error ?? 'invalid_grant', `VocalStack did not issue a key: ${token.error_description ?? res.status}`)
-      return { account: token.account?.name, apiKey: token.access_token }
+      // The workspace picked on the consent screen; an older API leaves it out.
+      const workspace = readWorkspace(token.workspace)
+      return { account: workspace?.name ?? token.account?.name, apiKey: token.access_token, ...(workspace ? { workspace } : {}) }
     }
 
     if (!install.apiKey) return refused(401, 'not_connected', 'Connect VocalStack first.')
@@ -76,7 +79,11 @@ export async function run(params: ActionParams, install: AppInstallationParamete
 
     switch (params.op) {
       case 'status': {
-        if (!params.recordingId) return { account: accountLabel(await api.me()), connected: true }
+        if (!params.recordingId) {
+          const me = await api.me()
+          const workspace = readWorkspace(me.workspace)
+          return { account: workspace?.name ?? accountLabel(me), connected: true, ...(workspace ? { workspace } : {}) }
+        }
         const job = await api.job(params.recordingId)
         if (job.state === 'transcribing') {
           const transcript = await api.transcript(params.recordingId).then((t) => compact(t, LIVE_SENTENCES), () => undefined)

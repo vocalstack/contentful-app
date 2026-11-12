@@ -12,6 +12,7 @@
  *    `apiKey` installation parameter.
  */
 
+import type { ConnectResult as Connected } from './actions.js'
 import type { Backend } from './backend.js'
 
 export const CALLBACK_PARAM = 'vocalstack-connect'
@@ -59,7 +60,7 @@ export function readCallback(search: string): ConnectResult {
 }
 
 /** Have the App Function redeem the code for an API key. */
-export async function finishConnect(pending: PendingConnect, result: ConnectResult, backend: Pick<Backend, 'connect'>): Promise<{ account?: string; apiKey: string }> {
+export async function finishConnect(pending: PendingConnect, result: ConnectResult, backend: Pick<Backend, 'connect'>): Promise<Connected> {
   if (!result.state || result.state !== pending.state) throw new Error('This connect link has expired. Start again.')
   if (result.error) throw new Error(result.error === 'access_denied' ? 'Connection cancelled.' : `VocalStack said: ${result.errorDescription ?? result.error}`)
   return backend.connect({ code: result.code ?? '', codeVerifier: pending.verifier, redirectUri: pending.redirectURI })

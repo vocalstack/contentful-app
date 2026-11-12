@@ -27,8 +27,10 @@ import { DEFAULT_API_URL, DEFAULT_DASHBOARD_URL } from '../api.js'
 import { type FieldDef, isMediaField, isObjectField } from '../audio.js'
 import { appActionBackend } from '../backend.js'
 import { Logo } from '../components/Brand.js'
+import { WorkspaceMark } from '../components/WorkspaceMark.js'
 import { type ConnectResult, type PendingConnect, beginConnect, callbackURL, CONNECT_MESSAGE, finishConnect, readCallback } from '../connect.js'
 import { buildTargetState, defaultTranscriptField } from '../config.js'
+import { type Workspace, withChecked, withConnection, withoutConnection, workspaceIconSrc } from '../workspace.js'
 
 const KEYS_URL = 'https://app.vocalstack.com/developers/keys'
 
@@ -47,11 +49,25 @@ const ConfigScreen = () => {
   const [pasted, setPasted] = useState('')
   const [installed, setInstalled] = useState(false)
   const [status, setStatus] = useState<string>()
+  // The workspace's icon link is signed for a while only: read with every check, never saved.
+  const [icon, setIcon] = useState<{ url: string; workspaceId: string }>()
+  // A key not saved yet: the App Function still checks the one saved before it.
+  const [unsavedKey, setUnsavedKey] = useState(false)
 
   const backend = useMemo(() => appActionBackend(sdk), [sdk])
   // The saved key is a Secret parameter: redacted here, so `connected` says whether there is one.
   const connected = Boolean(params.apiKey || params.connected)
   const dashboardURL = params.dashboardURL || DEFAULT_DASHBOARD_URL
+  const workspace = connected ? params.workspace : undefined
+  const iconSrc = workspace && icon?.workspaceId === workspace.id ? workspaceIconSrc(params.apiURL?.trim() || DEFAULT_API_URL, icon.url) : undefined
+
+  const unsavedKeyRef = useRef(unsavedKey)
+  unsavedKeyRef.current = unsavedKey
+  /** What a check of the saved key answered: its workspace now, with its icon. */
+  const took = useCallback((res: { account?: string; workspace?: Workspace }) => {
+    setParams((p) => withChecked(p, res))
+    setIcon(res.workspace?.iconUrl ? { url: res.workspace.iconUrl, workspaceId: res.workspace.id } : undefined)
+  }, [])
 
   useEffect(() => {
     void (async () => {
@@ -73,8 +89,13 @@ const ConfigScreen = () => {
       }
       setChoices(initial)
       await sdk.app.setReady()
+      // A rename or a new icon reaches the screen when it opens; a failure here stays quiet (Check connection says why).
+      if (isInstalled && saved?.connected) {
+        const res = await backend.check().catch(() => undefined)
+        if (res && !unsavedKeyRef.current) took(res)
+      }
     })()
-  }, [sdk])
+  }, [backend, sdk, took])
 
   const onConfigure = useCallback(async () => {
     const selected: Record<string, ContentTypeSetting> = {}
@@ -104,28 +125,31 @@ const ConfigScreen = () => {
     try {
       const res = await backend.check()
       setStatus(res.account ? `Connected to VocalStack as ${res.account}.` : 'Connected to VocalStack.')
-      if (res.account) setParams((p) => ({ ...p, account: res.account }))
+      took(res)
     } catch (err) {
       setStatus(undefined)
       setError(`VocalStack did not accept the saved key: ${(err as Error).message}`)
     } finally {
       setChecking(false)
     }
-  }, [backend])
+  }, [backend, took])
 
   useEffect(() => {
     sdk.app.onConfigurationCompleted((err) => {
       if (err) return
       setInstalled(true)
+      setUnsavedKey(false)
       void check()
     })
   }, [check, sdk])
 
-  const applyKey = (apiKey: string, account: string | undefined) => {
-    setParams((p) => ({ ...p, account, apiKey, connected: true }))
+  const applyKey = (apiKey: string, account: string | undefined, ws?: Workspace) => {
+    setParams((p) => withConnection(p, { account, apiKey, workspace: ws }))
+    setIcon(ws?.iconUrl ? { url: ws.iconUrl, workspaceId: ws.id } : undefined)
+    setUnsavedKey(true)
     setKeyInput('')
     setStatus(undefined)
-    sdk.notifier.success(`${account ? `Connected as ${account}. ` : ''}Save the configuration to keep the key.`)
+    sdk.notifier.success(`${ws ? `Connected to the workspace ${ws.name}. ` : account ? `Connected as ${account}. ` : ''}Save the configuration to keep the key.`)
   }
 
   const useTypedKey = () => {
@@ -144,12 +168,16 @@ const ConfigScreen = () => {
       const p = pendingRef.current
       if (!p) return { message: 'This connect link has expired. Start again from the app configuration.', ok: false }
       try {
-        const { account, apiKey } = await finishConnect(p, result, backend)
+        // Nothing changes before this answers: a cancelled or failed connect keeps the key in use.
+        const { account, apiKey, workspace: ws } = await finishConnect(p, result, backend)
         setPending(undefined)
-        applyKey(apiKey, account)
-        return { message: account ? `Connected to VocalStack as ${account}. Save the app configuration in Contentful to keep it.` : 'Connected to VocalStack.', ok: true }
+        setPasted('')
+        applyKey(apiKey, account, ws)
+        const name = ws?.name ?? account
+        return { message: name ? `Connected to VocalStack as ${name}. Save the app configuration in Contentful to keep it.` : 'Connected to VocalStack.', ok: true }
       } catch (err) {
         setPending(undefined)
+        setPasted('')
         setError((err as Error).message)
         return { message: (err as Error).message, ok: false }
       }
@@ -173,7 +201,10 @@ const ConfigScreen = () => {
       const p = await beginConnect({ clientName: `${spaceName ?? sdk.ids.space} (Contentful)`, dashboardURL, redirectURI: callbackURL(window.location) })
       setPending(p)
       if (tab) tab.location.href = p.url
-      else setError('Allow pop-ups for Contentful, then click Connect VocalStack again.')
+      else {
+        setPending(undefined)
+        setError(`Allow pop-ups for Contentful, then click ${!connected ? 'Connect VocalStack' : workspace ? 'Change' : 'Change workspace'} again.`)
+      }
     } catch (err) {
       tab?.close()
       setError((err as Error).message)
@@ -181,13 +212,42 @@ const ConfigScreen = () => {
   }
 
   const redeemPasted = async () => {
+    let result: ConnectResult
     try {
-      await redeem(readCallback(new URL(pasted.trim()).search))
-      setPasted('')
+      result = readCallback(new URL(pasted.trim()).search)
     } catch {
-      setError('Paste the whole address of the VocalStack tab.')
+      return setError('Paste the whole address of the VocalStack tab.')
     }
+    await redeem(result)
   }
+
+  /** Give up on the open VocalStack tab: whatever was connected before stays as it is. */
+  const cancelConnect = () => {
+    setPending(undefined)
+    setPasted('')
+    setError(undefined)
+  }
+
+  const pastedAddress = pending && (
+    <FormControl marginBottom="none" style={{ alignSelf: 'stretch' }}>
+      <FormControl.Label>The tab did not come back? Paste its address</FormControl.Label>
+      <Flex gap="spacingXs">
+        <TextInput onChange={(e) => setPasted(e.target.value)} placeholder="https://…?vocalstack-connect=1&code=…" value={pasted} />
+        <Button isDisabled={!pasted.trim()} onClick={() => void redeemPasted()} variant="secondary">
+          Use
+        </Button>
+        <Button onClick={cancelConnect} variant="transparent">
+          Cancel
+        </Button>
+      </Flex>
+    </FormControl>
+  )
+
+  const changeButton = (
+    <Button isDisabled={!installed} isLoading={Boolean(pending)} onClick={() => void connect()} size="small" variant="secondary">
+      {pending ? 'Waiting for VocalStack…' : workspace ? 'Change' : 'Change workspace'}
+    </Button>
+  )
 
   const setChoice = (id: string, patch: Partial<Choice>) => setChoices((c) => ({ ...c, [id]: { ...c[id], ...patch } as Choice }))
   const usable = (contentTypes ?? []).filter((ct) => choices[ct.sys.id])
@@ -208,45 +268,68 @@ const ConfigScreen = () => {
               <Heading as="h2">Connection</Heading>
               {connected ? (
                 <Stack alignItems="flex-start" flexDirection="column" spacing="spacingS">
-                  <Paragraph marginBottom="none">{status ?? `Connected to VocalStack${params.account ? ` as ${params.account}` : ''}.`}</Paragraph>
+                  {workspace && (
+                    <Flex alignItems="center" gap="spacingS" style={{ alignSelf: 'stretch' }}>
+                      <WorkspaceMark iconSrc={iconSrc} workspace={workspace} />
+                      <Flex flexDirection="column" style={{ flex: 1, minWidth: 0 }}>
+                        <Text fontColor="gray600" fontSize="fontSizeS" fontWeight="fontWeightMedium">
+                          Workspace
+                        </Text>
+                        <Text fontColor="gray900" fontSize="fontSizeL" fontWeight="fontWeightDemiBold" isTruncated testId="workspace-name">
+                          {workspace.name}
+                        </Text>
+                      </Flex>
+                      {changeButton}
+                    </Flex>
+                  )}
+                  {pastedAddress}
+                  <Paragraph marginBottom="none">
+                    {unsavedKey ? 'Connected to VocalStack. Save the configuration to keep the key.' : (status ?? `Connected to VocalStack${params.account ? ` as ${params.account}` : ''}.`)}
+                  </Paragraph>
                   <Flex gap="spacingXs">
+                    {!workspace && changeButton}
                     {installed && (
-                      <Button isLoading={checking} onClick={() => void check()} size="small" variant="secondary">
+                      <Button isDisabled={unsavedKey} isLoading={checking} onClick={() => void check()} size="small" variant="secondary">
                         Check connection
                       </Button>
                     )}
-                    <Button onClick={() => setParams((p) => ({ ...p, account: undefined, apiKey: undefined, connected: false }))} size="small" variant="secondary">
+                    <Button
+                      onClick={() => {
+                        cancelConnect()
+                        setParams(withoutConnection)
+                        setIcon(undefined)
+                        setUnsavedKey(false)
+                        setStatus(undefined)
+                      }}
+                      size="small"
+                      variant="secondary"
+                    >
                       Disconnect
                     </Button>
                   </Flex>
+                  <Text fontColor="gray600" fontSize="fontSizeS">
+                    Transcriptions from this space land in the connected workspace and use its credit. {workspace ? 'Change' : 'Change workspace'} opens VocalStack in a new
+                    tab: pick another workspace there and click Authenticate. That makes a new key for that workspace; the one in use stays until then, and transcripts
+                    already saved in entries stay as they are. Revoke the old key under Developers → API keys in VocalStack afterwards.
+                  </Text>
                   <Text fontColor="gray600" fontSize="fontSizeS">
                     Disconnecting removes the key from this space when you save. Revoke it under Developers → API keys in VocalStack too.
                   </Text>
                 </Stack>
               ) : (
                 <Stack alignItems="stretch" flexDirection="column" spacing="spacingM">
-                  <Paragraph marginBottom="none">Connect a VocalStack account to transcribe audio. Transcriptions use that account's credit.</Paragraph>
+                  <Paragraph marginBottom="none">Connect a VocalStack workspace to transcribe audio. Transcriptions land in that workspace and use its credit.</Paragraph>
                   <div>
                     <Button isDisabled={!installed} isLoading={Boolean(pending)} onClick={() => void connect()} variant="primary">
                       {pending ? 'Waiting for VocalStack…' : 'Connect VocalStack'}
                     </Button>
                     <Text as="p" fontColor="gray600" fontSize="fontSizeS" marginTop="spacingXs">
                       {installed
-                        ? 'Opens VocalStack in a new tab; click Authenticate there.'
+                        ? 'Opens VocalStack in a new tab; pick the workspace and click Authenticate there.'
                         : 'Install the app first (the key is redeemed by its App Function), then connect here. Or paste a key below.'}
                     </Text>
                   </div>
-                  {pending && (
-                    <FormControl marginBottom="none">
-                      <FormControl.Label>The tab did not come back? Paste its address</FormControl.Label>
-                      <Flex gap="spacingXs">
-                        <TextInput onChange={(e) => setPasted(e.target.value)} placeholder="https://…?vocalstack-connect=1&code=…" value={pasted} />
-                        <Button isDisabled={!pasted.trim()} onClick={() => void redeemPasted()} variant="secondary">
-                          Use
-                        </Button>
-                      </Flex>
-                    </FormControl>
-                  )}
+                  {pastedAddress}
                   <FormControl marginBottom="none">
                     <FormControl.Label>Or paste an API key</FormControl.Label>
                     <Flex gap="spacingXs">

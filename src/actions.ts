@@ -5,6 +5,7 @@
  */
 
 import type { Job, Transcript } from './api.js'
+import type { Workspace } from './workspace.js'
 
 export const ACTION_IDS = {
   connect: 'vocalstackConnect',
@@ -15,7 +16,7 @@ export const ACTION_IDS = {
 
 export type ActionParams =
   | { code: string; codeVerifier: string; op: 'connect'; redirectUri: string }
-  /** Without `recordingId`: whether the saved key works, and for which account. */
+  /** Without `recordingId`: whether the saved key works, and in which workspace. */
   | { op: 'status'; recordingId?: string }
   | { op: 'stop'; recordingId: string }
   | { idempotencyKey: string; name: string; op: 'transcribe'; url: string }
@@ -23,8 +24,9 @@ export type ActionParams =
 /** A transcript's sentences as the function returns them: no segments, no words. */
 export type CompactTranscript = Pick<Transcript, 'lang' | 'sentences'>
 
-export type ConnectResult = { account?: string; apiKey: string }
-export type CheckResult = { account?: string; connected: boolean }
+/** `workspace` is left out by an API older than workspaces; `account` is then the name it gave. */
+export type ConnectResult = { account?: string; apiKey: string; workspace?: Workspace }
+export type CheckResult = { account?: string; connected: boolean; workspace?: Workspace }
 /** The job, plus its sentences while it transcribes (the latest ones) or once done (all of them). */
 export type StatusResult = { job: Job; transcript?: CompactTranscript }
 export type StopResult = { ended: boolean }

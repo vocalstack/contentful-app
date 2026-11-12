@@ -72,4 +72,6 @@ behind it. Unverified here: how Contentful redacts a Secret parameter and whethe
 sending the redacted value back keeps the key; the real app action runtime (its
 `event`/`context` shapes, timeouts, `allowNetworks`, parameter length limits); whether the
 web app echoes `valueChanged` to the frame that called `setValue`; `npm run upload` and
-`upsert-actions`; one-click connect (it needs the dashboard).
+`upsert-actions`; one-click connect and **Change** workspace (they need the dashboard);
+whether Contentful's app hosting lets the workspace icon load from the API's address (the
+mark falls back to initials when it does not).
