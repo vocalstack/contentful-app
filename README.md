@@ -99,6 +99,7 @@ Configuration screen (iframe)        Callback tab (the app's own page)    app.vo
 click Connect: state, verifier (memory only)
 new tab ─▶ GET app/connect?response_type=code&client_name=<space> (Contentful)&redirect_uri=<app URL>?vocalstack-connect=1
            &state=…&code_challenge=…&code_challenge_method=S256&scope=read write
+           (&workspace=<id> when a workspace is connected already: the consent screen starts on it)
            (sign in if needed; pick the workspace; "<app host> wants to transcribe with VocalStack")
            click Authenticate ─▶ API stores a single-use grant (code hash, challenge, redirect, scopes, principal; 2 min)
                                      ◀── 302 redirect_uri&code=…&state=…

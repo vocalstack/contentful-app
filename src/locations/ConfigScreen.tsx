@@ -198,7 +198,7 @@ const ConfigScreen = () => {
     // Open the tab inside the click, before any await, or the popup blocker eats it.
     const tab = window.open('about:blank', '_blank')
     try {
-      const p = await beginConnect({ clientName: `${spaceName ?? sdk.ids.space} (Contentful)`, dashboardURL, redirectURI: callbackURL(window.location) })
+      const p = await beginConnect({ clientName: `${spaceName ?? sdk.ids.space} (Contentful)`, dashboardURL, redirectURI: callbackURL(window.location), workspaceId: workspace?.id })
       setPending(p)
       if (tab) tab.location.href = p.url
       else {

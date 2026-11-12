@@ -4,6 +4,7 @@
  *
  * 1. The configuration screen makes a state and a verifier (kept in memory only) and
  *    opens {dashboard}/connect?response_type=code&redirect_uri=…&state=…&code_challenge=…
+ *    (plus workspace=<id> when a workspace is connected already, so the consent screen starts on it)
  * 2. The person clicks Authenticate on the dashboard, which redirects to this app's
  *    own page with ?code=…&state=… (the `vocalstack-connect` callback, see callback.ts).
  * 3. That tab hands the code to the configuration screen, which checks the state and has
@@ -34,11 +35,17 @@ export async function challengeOf(verifier: string): Promise<string> {
 }
 
 /** The connect link, and what the configuration screen keeps to redeem its code. */
-export async function beginConnect(args: { clientName: string; dashboardURL: string; redirectURI: string }): Promise<PendingConnect> {
+export async function beginConnect(args: {
+  clientName: string
+  dashboardURL: string
+  redirectURI: string
+  /** The workspace connected now: the consent screen starts on it. Left out when none is known. */
+  workspaceId?: string
+}): Promise<PendingConnect> {
   const state = random(24)
   const verifier = random(48)
   const url = new URL('/connect', args.dashboardURL)
-  url.search = new URLSearchParams({
+  const query = new URLSearchParams({
     client_name: args.clientName.trim().slice(0, MAX_CLIENT_NAME),
     code_challenge: await challengeOf(verifier),
     code_challenge_method: 'S256',
@@ -46,7 +53,10 @@ export async function beginConnect(args: { clientName: string; dashboardURL: str
     response_type: 'code',
     scope: 'read write',
     state,
-  }).toString()
+  })
+  const workspaceId = args.workspaceId?.trim()
+  if (workspaceId) query.set('workspace', workspaceId)
+  url.search = query.toString()
   return { redirectURI: args.redirectURI, state, url: url.toString(), verifier }
 }
 

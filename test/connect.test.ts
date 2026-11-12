@@ -24,6 +24,21 @@ describe('one-click connect', () => {
     expect(p.verifier.length).toBeGreaterThanOrEqual(43)
   })
 
+  it('starts the consent screen on the workspace connected now, and names none when none is known', async () => {
+    const args = { clientName: 'Podcasts (Contentful)', dashboardURL: 'https://app.vocalstack.com', redirectURI: 'https://abc.ctfcloud.net/index.html?vocalstack-connect=1' }
+    const id = '5b0c8a52-6f0e-4c58-9d1a-2f1f3a7b9c10'
+    const withWorkspace = new URL((await beginConnect({ ...args, workspaceId: id })).url)
+    expect(withWorkspace.searchParams.get('workspace')).toBe(id)
+    expect(withWorkspace.searchParams.getAll('workspace')).toHaveLength(1)
+    expect(withWorkspace.searchParams.get('client_name')).toBe('Podcasts (Contentful)')
+    for (const workspaceId of [undefined, '', '  ']) {
+      const without = new URL((await beginConnect({ ...args, workspaceId })).url)
+      expect(without.searchParams.has('workspace')).toBe(false)
+      expect(without.search).not.toContain('workspace=')
+    }
+    expect(new URL((await beginConnect(args)).url).searchParams.has('workspace')).toBe(false)
+  })
+
   it('reads the dashboard answer', () => {
     expect(readCallback('?vocalstack-connect=1&code=c&state=s')).toEqual({ code: 'c', error: undefined, errorDescription: undefined, state: 's' })
   })
