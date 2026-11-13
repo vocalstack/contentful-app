@@ -79,22 +79,22 @@ export async function run(params: ActionParams, install: AppInstallationParamete
 
     switch (params.op) {
       case 'status': {
-        if (!params.recordingId) {
+        if (!params.transcriptionId) {
           const me = await api.me()
           const workspace = readWorkspace(me.workspace)
           return { account: workspace?.name ?? accountLabel(me), connected: true, ...(workspace ? { workspace } : {}) }
         }
-        const job = await api.job(params.recordingId)
+        const job = await api.job(params.transcriptionId)
         if (job.state === 'transcribing') {
-          const transcript = await api.transcript(params.recordingId).then((t) => compact(t, LIVE_SENTENCES), () => undefined)
+          const transcript = await api.transcript(params.transcriptionId).then((t) => compact(t, LIVE_SENTENCES), () => undefined)
           return { job, transcript }
         }
-        if (job.state === 'done') return { job, transcript: compact(await api.transcript(params.recordingId)) }
+        if (job.state === 'done') return { job, transcript: compact(await api.transcript(params.transcriptionId)) }
         return { job }
       }
       case 'stop':
         try {
-          await api.stop(params.recordingId, 'Stopped from Contentful')
+          await api.stop(params.transcriptionId, 'Stopped from Contentful')
           return { ended: false }
         } catch (err) {
           // Too late to stop: the job ended meanwhile.
@@ -119,7 +119,7 @@ export async function run(params: ActionParams, install: AppInstallationParamete
           tx = await api.transcribeURL(params.url, opts)
         }
         if (!tx.job) return refused(502, 'no_job', 'VocalStack did not start a job for this file.')
-        return { recordingId: tx.job.recordingId, state: tx.job.state, transcriptionId: tx.id }
+        return { state: tx.job.state, transcriptionId: tx.id }
       }
       default:
         return refused(400, 'unknown_op', 'Unknown VocalStack action.')

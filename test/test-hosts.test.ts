@@ -26,9 +26,9 @@ describe('test asset hosts (e2e only)', () => {
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ body: init.body, url: String(input) })
       if (String(input).startsWith('http://127.0.0.1:5182/')) return new Response(new Uint8Array([1, 2, 3]))
-      return new Response(JSON.stringify({ id: 'tx_1', job: { progress: { pct: 0 }, recordingId: 'rec_1', state: 'queued', transcriptionId: 'tx_1' }, name: 'Episode 42' }), { status: 201 })
+      return new Response(JSON.stringify({ id: 'tx_1', job: { progress: { pct: 0 }, state: 'queued', transcriptionId: 'tx_1' }, name: 'Episode 42' }), { status: 201 })
     })
-    expect(await run(params, install, { spaceId: 's' })).toEqual({ recordingId: 'rec_1', state: 'queued', transcriptionId: 'tx_1' })
+    expect(await run(params, install, { spaceId: 's' })).toEqual({ state: 'queued', transcriptionId: 'tx_1' })
     expect(calls[0].url).toBe('http://127.0.0.1:5182/episode-042.mp3')
     const form = calls[1].body as FormData
     expect(form).toBeInstanceOf(FormData)

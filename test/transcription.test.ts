@@ -9,7 +9,9 @@ import { job, mockEntryField, mockSDK } from './harness.js'
 
 const install = { apiKey: 'vs_key_secret', connected: true, spokenLanguage: 'en' }
 const previous: VocalStackFieldData = { language: 'en', sentences: [{ end: 1, speaker: 0, start: 0, text: 'Old.' }], status: 'done', transcript: 'Old.' }
-const processing = { ...previous, recordingId: 'rec_1', status: 'processing' as const, transcriptionId: 'tx_1' }
+const processing = { ...previous, status: 'processing' as const, transcriptionId: 'tx_1' }
+/** As versions before 0.3.0 saved a running job: its recording id beside the transcription's. */
+const savedBefore030 = { ...processing, recordingId: 'rec_1' } as VocalStackFieldData
 
 describe('startTranscription', () => {
   it('has the function send the asset URL, and saves the job in the field, keeping the earlier transcript', async () => {
@@ -25,7 +27,15 @@ describe('startTranscription', () => {
     expect(sent.headers.authorization).toBe('Bearer vs_key_secret')
     expect(sent.headers['idempotency-key']).toBe('contentful:space1:entry1:k')
     expect(JSON.parse(sent.body!)).toEqual({ name: 'Episode 1', settings: { spokenLanguage: 'en' }, url: 'https://assets.ctfassets.net/a/b/c/ep.mp3' })
-    expect(f.value()).toMatchObject({ error: null, recordingId: 'rec_1', status: 'processing', transcript: 'Old.', transcriptionId: 'tx_1' })
+    expect(f.value()).toMatchObject({ error: null, status: 'processing', transcript: 'Old.', transcriptionId: 'tx_1' })
+  })
+
+  it('drops the recording id an earlier version saved', async () => {
+    const f = mockEntryField({ ...savedBefore030, status: 'done' })
+    const { backend } = mockSDK(install)
+    await startTranscription(backend, f.target, { idempotencyKey: 'k', name: 'x', url: 'https://assets.ctfassets.net/x.mp3' })
+    expect(f.value()).not.toHaveProperty('recordingId')
+    expect(f.value()).toMatchObject({ status: 'processing', transcriptionId: 'tx_1' })
   })
 
   it('refuses addresses that are not Contentful assets', async () => {
@@ -48,7 +58,7 @@ describe('checkJob', () => {
     const f = mockEntryField(processing)
     const { backend, vs } = mockSDK(install)
     vs.state.job = job({ progress: { pct: 40, processedS: 60, totalS: 150 }, state: 'transcribing' })
-    const out = await checkJob(backend, f.target, 'rec_1')
+    const out = await checkJob(backend, f.target, 'tx_1')
     expect(out).toMatchObject({ kind: 'processing', progress: { audio: { processedS: 60, totalS: 150 }, phase: 'transcribing', progress: 40 } })
     if (out.kind === 'processing') expect(out.progress.partial?.map((s) => s.text)).toEqual(['Hello there.', 'Hi.'])
     expect(f.setValue).not.toHaveBeenCalled()
@@ -58,7 +68,7 @@ describe('checkJob', () => {
     const f = mockEntryField(processing)
     const { backend, vs } = mockSDK(install)
     vs.state.job = job({ state: 'done' })
-    expect((await checkJob(backend, f.target, 'rec_1')).kind).toBe('done')
+    expect((await checkJob(backend, f.target, 'tx_1')).kind).toBe('done')
     const v = f.value()!
     expect(v.status).toBe('done')
     expect(v.transcript).toBe('Hello there.\n\nHi.')
@@ -67,7 +77,7 @@ describe('checkJob', () => {
       { end: 6, speaker: 1, start: 4, text: 'Hi.' },
     ])
     expect(v.language).toBe('en')
-    expect(v.recordingId).toBe('rec_1')
+    expect(v.transcriptionId).toBe('tx_1')
     expect(Date.parse(v.transcribedAt!)).not.toBeNaN()
   })
 
@@ -75,7 +85,7 @@ describe('checkJob', () => {
     const f = mockEntryField(processing)
     const { backend, vs } = mockSDK(install)
     vs.state.job = job({ error: 'Could not fetch the file.', state: 'failed' })
-    await checkJob(backend, f.target, 'rec_1')
+    await checkJob(backend, f.target, 'tx_1')
     expect(f.value()).toMatchObject({ error: 'Could not fetch the file.', status: 'failed', transcript: 'Old.' })
   })
 
@@ -85,32 +95,50 @@ describe('checkJob', () => {
       const f = mockEntryField(processing)
       const { backend, vs } = mockSDK(install)
       vs.state.job = stopped
-      expect((await checkJob(backend, f.target, 'rec_1')).kind).toBe('stopped')
+      expect((await checkJob(backend, f.target, 'tx_1')).kind).toBe('stopped')
       expect(f.value()).toMatchObject({ status: 'done', transcript: 'Old.' })
     }
   })
 
   it('leaves the field alone when it moved on to another job', async () => {
-    const f = mockEntryField({ ...processing, recordingId: 'rec_2' })
+    const f = mockEntryField({ ...processing, transcriptionId: 'tx_2' })
     const { backend, vs } = mockSDK(install)
     vs.state.job = job({ state: 'done' })
-    expect((await checkJob(backend, f.target, 'rec_1')).kind).toBe('superseded')
+    expect((await checkJob(backend, f.target, 'tx_1')).kind).toBe('superseded')
     expect(f.setValue).not.toHaveBeenCalled()
+  })
+})
+
+describe('a job saved before 0.3.0', () => {
+  it('is followed and settled by its transcription id', async () => {
+    const f = mockEntryField(savedBefore030)
+    const { backend, vs } = mockSDK(install)
+    vs.state.job = job({ state: 'done' })
+    expect((await checkJob(backend, f.target, 'tx_1')).kind).toBe('done')
+    expect(vs.calls.map((c) => c.path)).toEqual(['/v1/transcriptions/tx_1/job', '/v1/transcriptions/tx_1/transcript'])
+    expect(f.value()).toMatchObject({ status: 'done', transcript: 'Hello there.\n\nHi.' })
+  })
+
+  it('is stopped by its transcription id', async () => {
+    const f = mockEntryField(savedBefore030)
+    const { backend, vs } = mockSDK(install)
+    expect((await stopTranscription(backend, f.target)).kind).toBe('stopped')
+    expect(vs.calls.map((c) => `${c.method} ${c.path}`)).toEqual(['POST /v1/transcriptions/tx_1/stop'])
   })
 })
 
 describe('stopTranscription', () => {
   it('stops the job and restores idle when there was no transcript before', async () => {
-    const f = mockEntryField({ recordingId: 'rec_1', status: 'processing', transcriptionId: 'tx_1' })
+    const f = mockEntryField({ status: 'processing', transcriptionId: 'tx_1' })
     const { backend, vs } = mockSDK(install)
     expect((await stopTranscription(backend, f.target)).kind).toBe('stopped')
-    expect(vs.calls.map((c) => `${c.method} ${c.path}`)).toEqual(['POST /v1/recordings/rec_1/stop'])
+    expect(vs.calls.map((c) => `${c.method} ${c.path}`)).toEqual(['POST /v1/transcriptions/tx_1/stop'])
     expect(JSON.parse(vs.calls[0].body!)).toEqual({ reason: 'Stopped from Contentful' })
     expect(f.value()?.status).toBe('idle')
   })
 
   it('takes the outcome when the job ended before the stop (409)', async () => {
-    const f = mockEntryField({ recordingId: 'rec_1', status: 'processing', transcriptionId: 'tx_1' })
+    const f = mockEntryField({ status: 'processing', transcriptionId: 'tx_1' })
     const { backend, vs } = mockSDK(install)
     Object.assign(vs.state, { job: job({ state: 'done' }), stopStatus: 409 })
     expect((await stopTranscription(backend, f.target)).kind).toBe('done')
@@ -154,7 +182,7 @@ describe('a transcription left in the workspace connected before', () => {
     const f = mockEntryField(processing)
     const { backend, vs } = mockSDK(install)
     vs.state.jobStatus = 404
-    const err = await checkJob(backend, f.target, 'rec_1').catch((e) => e)
+    const err = await checkJob(backend, f.target, 'tx_1').catch((e) => e)
     expect(err).toBeInstanceOf(VocalStackAPIError)
     expect(describeError(err)).toEqual({
       message: 'VocalStack cannot find this transcription in the connected workspace. It was made in another workspace, or deleted there. Transcribe the audio again to make it in this one.',

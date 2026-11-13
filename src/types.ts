@@ -58,7 +58,6 @@ export type SavedSentence = {
 export type VocalStackFieldData = {
   error?: null | string
   language?: null | string
-  recordingId?: null | string
   sentences?: null | SavedSentence[]
   status?: null | TranscriptStatus
   transcript?: null | string

@@ -32,13 +32,11 @@ export const toSaved = (sentences: TranscriptSentence[]): SavedSentence[] =>
   sentences.map(({ end, speaker, start, text }) => ({ start: round(start), end: round(end), speaker, text }))
 
 /** A job has started. The earlier transcript stays until this one is done. */
-export const startedState = (prev: undefined | VocalStackFieldData, ids: { recordingId: string; transcriptionId: string }): VocalStackFieldData => ({
-  ...prev,
-  error: null,
-  recordingId: ids.recordingId,
-  status: 'processing',
-  transcriptionId: ids.transcriptionId,
-})
+export function startedState(prev: undefined | VocalStackFieldData, transcriptionId: string): VocalStackFieldData {
+  // Versions before 0.3.0 also saved a `recordingId`, which VocalStack no longer answers to.
+  const { recordingId: _legacy, ...kept } = (prev ?? {}) as VocalStackFieldData & { recordingId?: unknown }
+  return { ...kept, error: null, status: 'processing', transcriptionId }
+}
 
 export function doneState(prev: undefined | VocalStackFieldData, transcript: CompactTranscript, now = new Date()): VocalStackFieldData {
   const sentences = toSentences(transcript)
@@ -62,12 +60,12 @@ export const failedState = (prev: undefined | VocalStackFieldData, error: string
 export const stoppedState = (prev: undefined | VocalStackFieldData): VocalStackFieldData => ({ ...prev, error: null, status: prev?.transcript ? 'done' : 'idle' })
 
 /** Whether the field still waits on this job. */
-const waitsOn = (data: undefined | VocalStackFieldData, recordingId: string) => data?.status === 'processing' && data.recordingId === recordingId
+const waitsOn = (data: undefined | VocalStackFieldData, transcriptionId: string) => data?.status === 'processing' && data.transcriptionId === transcriptionId
 
 /** Write `next(current)`, unless the field has moved on from this job. */
-async function settle(target: FieldTarget, recordingId: string, kind: 'done' | 'failed' | 'stopped', next: (prev: undefined | VocalStackFieldData) => VocalStackFieldData): Promise<Outcome> {
+async function settle(target: FieldTarget, transcriptionId: string, kind: 'done' | 'failed' | 'stopped', next: (prev: undefined | VocalStackFieldData) => VocalStackFieldData): Promise<Outcome> {
   const current = target.get()
-  if (!waitsOn(current, recordingId)) return { data: current, kind: 'superseded' }
+  if (!waitsOn(current, transcriptionId)) return { data: current, kind: 'superseded' }
   const data = next(current)
   await target.set(data)
   return { data, kind }
@@ -76,7 +74,7 @@ async function settle(target: FieldTarget, recordingId: string, kind: 'done' | '
 /** Start transcribing the audio at `url`, and mark the field as processing. */
 export async function startTranscription(backend: Backend, target: FieldTarget, call: { idempotencyKey: string; name: string; url: string }): Promise<VocalStackFieldData> {
   const tx = await backend.transcribe(call)
-  const data = startedState(target.get(), { recordingId: tx.recordingId, transcriptionId: tx.transcriptionId })
+  const data = startedState(target.get(), tx.transcriptionId)
   await target.set(data)
   return data
 }
@@ -85,13 +83,13 @@ export async function startTranscription(backend: Backend, target: FieldTarget, 
  * Where a job stands, saving the outcome in the field once it is over: the whole
  * transcript when done, the reason when it failed.
  */
-export async function checkJob(backend: Backend, target: FieldTarget, recordingId: string): Promise<Outcome> {
-  const { job, transcript } = await backend.status(recordingId)
+export async function checkJob(backend: Backend, target: FieldTarget, transcriptionId: string): Promise<Outcome> {
+  const { job, transcript } = await backend.status(transcriptionId)
   // `stopped` is its own state; older answers said `failed` with errorCode `stopped`.
-  if (job.state === 'stopped' || (job.state === 'failed' && job.errorCode === 'stopped')) return settle(target, recordingId, 'stopped', stoppedState)
+  if (job.state === 'stopped' || (job.state === 'failed' && job.errorCode === 'stopped')) return settle(target, transcriptionId, 'stopped', stoppedState)
   if (job.state === 'failed' || job.state === 'cropping') {
     const error = job.state === 'cropping' ? 'VocalStack is waiting for a crop window; open the transcription in VocalStack.' : (job.error ?? 'The transcription failed.')
-    return settle(target, recordingId, 'failed', (prev) => failedState(prev, error))
+    return settle(target, transcriptionId, 'failed', (prev) => failedState(prev, error))
   }
   if (job.state !== 'done') {
     const progress = job.state === 'fetching' ? (job.progress.phasePct ?? 0) : job.progress.pct
@@ -104,17 +102,17 @@ export async function checkJob(backend: Backend, target: FieldTarget, recordingI
     }
   }
   if (!transcript) throw new ActionCallError('VocalStack finished, but the transcript did not come back. Trying again.')
-  return settle(target, recordingId, 'done', (prev) => doneState(prev, transcript))
+  return settle(target, transcriptionId, 'done', (prev) => doneState(prev, transcript))
 }
 
 /** Stop the job. The field goes back to how it was; VocalStack keeps what it heard so far. */
 export async function stopTranscription(backend: Backend, target: FieldTarget): Promise<Outcome> {
   const current = target.get()
-  const recordingId = current?.recordingId
-  if (current?.status !== 'processing' || !recordingId) return { data: current, kind: 'superseded' }
+  const transcriptionId = current?.transcriptionId
+  if (current?.status !== 'processing' || !transcriptionId) return { data: current, kind: 'superseded' }
   // Too late to stop: the job ended meanwhile, so take its outcome instead.
-  if ((await backend.stop(recordingId)).ended) return checkJob(backend, target, recordingId)
-  return settle(target, recordingId, 'stopped', stoppedState)
+  if ((await backend.stop(transcriptionId)).ended) return checkJob(backend, target, transcriptionId)
+  return settle(target, transcriptionId, 'stopped', stoppedState)
 }
 
 /** A message for the editor, and whether trying again later could help. */

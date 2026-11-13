@@ -14,7 +14,6 @@ export type Job = {
   /** Why a failed job failed; `stopped` on a stopped job. */
   errorCode?: null | string
   progress: { pct: number; phase?: null | string; phasePct?: null | number; processedS?: number; totalS?: null | number }
-  recordingId: string
   state: JobState
   transcriptionId: string
 }
@@ -91,17 +90,17 @@ export class VocalStackAPI {
     return this.request<Transcription>('POST', '/v1/transcriptions', form, { 'idempotency-key': opts.idempotencyKey })
   }
 
-  job(recordingId: string) {
-    return this.request<Job>('GET', `/v1/recordings/${encodeURIComponent(recordingId)}/job`)
+  job(transcriptionId: string) {
+    return this.request<Job>('GET', `/v1/transcriptions/${encodeURIComponent(transcriptionId)}/job`)
   }
 
   /** Stop a job before it is done. Its job ends `stopped`; what was transcribed so far stays in VocalStack. */
-  stop(recordingId: string, reason?: string) {
-    return this.request<unknown>('POST', `/v1/recordings/${encodeURIComponent(recordingId)}/stop`, { reason: reason ?? null })
+  stop(transcriptionId: string, reason?: string) {
+    return this.request<unknown>('POST', `/v1/transcriptions/${encodeURIComponent(transcriptionId)}/stop`, { reason: reason ?? null })
   }
 
-  transcript(recordingId: string) {
-    return this.request<Transcript>('GET', `/v1/recordings/${encodeURIComponent(recordingId)}/transcript`)
+  transcript(transcriptionId: string) {
+    return this.request<Transcript>('GET', `/v1/transcriptions/${encodeURIComponent(transcriptionId)}/transcript`)
   }
 }
 

@@ -37,7 +37,7 @@ async function exclusive(name: string, signal: AbortSignal, fn: () => Promise<vo
 /**
  * The Transcribe / progress / Stop state of one Transcript field, for the Field and
  * Sidebar locations alike. Everything that must survive a reload (the job's
- * recordingId and status) is in the field itself.
+ * transcriptionId and status) is in the field itself.
  */
 export function useTranscription(sdk: EditorSDK, args: { audioField?: string; fieldId?: string; locale: string }) {
   const { fieldId } = args
@@ -107,19 +107,19 @@ export function useTranscription(sdk: EditorSDK, args: { audioField?: string; fi
   )
 
   // Follow a running job, also after a reload: every 3 s until it is over.
-  const processing = value?.status === 'processing' && Boolean(value.recordingId)
-  const recordingId = processing ? value!.recordingId! : undefined
+  const processing = value?.status === 'processing' && Boolean(value.transcriptionId)
+  const transcriptionId = processing ? value!.transcriptionId! : undefined
   useEffect(() => {
-    if (!recordingId || !api || !target) return
+    if (!transcriptionId || !api || !target) return
     const ac = new AbortController()
     setHalted(false)
     void exclusive(channelName, ac.signal, async () => {
       let wait = POLL_MS
       while (!ac.signal.aborted) {
         const now = target.get()
-        if (now?.status !== 'processing' || now.recordingId !== recordingId) return
+        if (now?.status !== 'processing' || now.transcriptionId !== transcriptionId) return
         try {
-          const out = await checkJob(api, target, recordingId)
+          const out = await checkJob(api, target, transcriptionId)
           if (ac.signal.aborted) return
           if (out.kind !== 'processing') {
             if (out.kind !== 'superseded') notify(out)
@@ -142,7 +142,7 @@ export function useTranscription(sdk: EditorSDK, args: { audioField?: string; fi
       }
     })
     return () => ac.abort()
-  }, [api, channelName, notify, recordingId, target])
+  }, [api, channelName, notify, transcriptionId, target])
 
   const transcribe = useCallback(async () => {
     if (!api || !target || !fieldId) return

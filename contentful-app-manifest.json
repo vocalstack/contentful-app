@@ -28,13 +28,13 @@
     {
       "id": "vocalstackStatus",
       "name": "VocalStack: status",
-      "description": "Where a job stands, with its sentences; without a recording, check the saved key.",
+      "description": "Where a job stands, with its sentences; without a transcription, check the saved key.",
       "type": "function-invocation",
       "functionId": "vocalstack",
       "category": "Custom",
       "parameters": [
         { "id": "op", "name": "Operation", "type": "Enum", "options": ["status"], "required": true },
-        { "id": "recordingId", "name": "Recording id", "type": "Symbol", "required": false }
+        { "id": "transcriptionId", "name": "Transcription id", "type": "Symbol", "required": false }
       ]
     },
     {
@@ -46,7 +46,7 @@
       "category": "Custom",
       "parameters": [
         { "id": "op", "name": "Operation", "type": "Enum", "options": ["stop"], "required": true },
-        { "id": "recordingId", "name": "Recording id", "type": "Symbol", "required": true }
+        { "id": "transcriptionId", "name": "Transcription id", "type": "Symbol", "required": true }
       ]
     },
     {

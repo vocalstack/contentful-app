@@ -16,9 +16,9 @@ export const ACTION_IDS = {
 
 export type ActionParams =
   | { code: string; codeVerifier: string; op: 'connect'; redirectUri: string }
-  /** Without `recordingId`: whether the saved key works, and in which workspace. */
-  | { op: 'status'; recordingId?: string }
-  | { op: 'stop'; recordingId: string }
+  /** Without `transcriptionId`: whether the saved key works, and in which workspace. */
+  | { op: 'status'; transcriptionId?: string }
+  | { op: 'stop'; transcriptionId: string }
   | { idempotencyKey: string; name: string; op: 'transcribe'; url: string }
 
 /** A transcript's sentences as the function returns them: no segments, no words. */
@@ -30,7 +30,7 @@ export type CheckResult = { account?: string; connected: boolean; workspace?: Wo
 /** The job, plus its sentences while it transcribes (the latest ones) or once done (all of them). */
 export type StatusResult = { job: Job; transcript?: CompactTranscript }
 export type StopResult = { ended: boolean }
-export type TranscribeResult = { recordingId: string; state: string; transcriptionId: string }
+export type TranscribeResult = { state: string; transcriptionId: string }
 
 /** Every answer is either the result or what VocalStack refused, so the frontend can tell them apart. */
 export type ActionError = { error: { code: string; message: string; status: number } }

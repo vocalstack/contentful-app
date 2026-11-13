@@ -38,7 +38,7 @@ Tests: `npm test` (unit), and `VOCALSTACK_API_KEY=vs_key_… npm run e2e`, which
   - the Transcript field's value:
     - `transcript`: text you can edit; paragraphs break on a speaker change or a pause.
     - `sentences`: `[{ start, end, speaker, text }]` in seconds.
-    - `status`, `language`, `error`, `recordingId`, `transcriptionId` and `transcribedAt`.
+    - `status`, `language`, `error`, `transcriptionId` and `transcribedAt`. A value saved before 0.3.0 may also carry a `recordingId`; the app no longer reads it, and drops it the next time the entry is transcribed.
 
     ```json
     {
@@ -50,7 +50,6 @@ Tests: `npm test` (unit), and `VOCALSTACK_API_KEY=vs_key_… npm run e2e`, which
       "status": "done",
       "language": "en",
       "error": null,
-      "recordingId": "…",
       "transcriptionId": "…",
       "transcribedAt": "2026-10-21T09:30:00.000Z"
     }
@@ -85,7 +84,7 @@ Instance parameter of the Transcript field (Content model → the field → **Ap
 
 The entry's locale picks the asset's file and the transcript's locale: the field editor works in its own locale, the sidebar in the space's default locale.
 
-**How the audio reaches VocalStack.** Contentful serves asset files from public addresses (`//assets.ctfassets.net/…` and `//downloads.ctfassets.net/…`), so the app passes that address, made https, to its function, which asks VocalStack to fetch it (`POST /v1/transcriptions { url }`); the function accepts `*.ctfassets.net` addresses only. Nothing is uploaded from the browser. The job runs on VocalStack, and the entry editor calls the status action every 3 s (only one open editor polls at a time), saving `recordingId` and `status` in the field; once done it saves the transcript the function returns. The workspace is billed per second, with a 5-minute minimum per transcription.
+**How the audio reaches VocalStack.** Contentful serves asset files from public addresses (`//assets.ctfassets.net/…` and `//downloads.ctfassets.net/…`), so the app passes that address, made https, to its function, which asks VocalStack to fetch it (`POST /v1/transcriptions { url }`); the function accepts `*.ctfassets.net` addresses only. Nothing is uploaded from the browser. The job runs on VocalStack, and the entry editor calls the status action every 3 s (only one open editor polls at a time), saving `transcriptionId` and `status` in the field; once done it saves the transcript the function returns. The workspace is billed per second, with a 5-minute minimum per transcription.
 
 Spaces with embargoed assets serve files only with a signed address, which VocalStack cannot fetch; the app does not support them yet.
 

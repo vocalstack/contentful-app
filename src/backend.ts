@@ -9,8 +9,8 @@ import { VocalStackAPIError } from './api.js'
 export type Backend = {
   check: () => Promise<CheckResult>
   connect: (args: { code: string; codeVerifier: string; redirectUri: string }) => Promise<ConnectResult>
-  status: (recordingId: string) => Promise<StatusResult>
-  stop: (recordingId: string) => Promise<StopResult>
+  status: (transcriptionId: string) => Promise<StatusResult>
+  stop: (transcriptionId: string) => Promise<StopResult>
   transcribe: (args: { idempotencyKey: string; name: string; url: string }) => Promise<TranscribeResult>
 }
 
@@ -40,8 +40,8 @@ export function appActionBackend(sdk: Pick<BaseAppSDK, 'cma'> & { ids: { app?: s
   return {
     check: () => call('status', {}),
     connect: (args) => call('connect', args),
-    status: (recordingId) => call('status', { recordingId }),
-    stop: (recordingId) => call('stop', { recordingId }),
+    status: (transcriptionId) => call('status', { transcriptionId }),
+    stop: (transcriptionId) => call('stop', { transcriptionId }),
     transcribe: (args) => call('transcribe', args),
   }
 }

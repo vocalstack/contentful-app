@@ -17,7 +17,7 @@ export const transcript: Transcript = {
   ],
 }
 
-export const job = (patch: Partial<Job> = {}): Job => ({ progress: { pct: 0 }, recordingId: 'rec_1', state: 'queued', transcriptionId: 'tx_1', ...patch })
+export const job = (patch: Partial<Job> = {}): Job => ({ progress: { pct: 0 }, state: 'queued', transcriptionId: 'tx_1', ...patch })
 
 /** VocalStack, as the App Function's fetch sees it. */
 export function mockVocalStack() {
@@ -32,9 +32,9 @@ export function mockVocalStack() {
     if (route === 'POST /v1/connect/token') return reply(200, { access_token: 'vs_key_new', account: { name: 'Acme' }, token_type: 'api_key', ...(state.workspace ? { workspace: state.workspace } : {}) })
     if (route === 'GET /v1/me') return reply(200, { principal: { name: 'Acme' }, ...(state.workspace ? { workspace: state.workspace } : {}) })
     if (route === 'POST /v1/transcriptions') return reply(201, { id: 'tx_1', job: state.job, name: 'Episode 1' })
-    if (route === 'GET /v1/recordings/rec_1/job') return state.jobStatus === 200 ? reply(200, state.job) : reply(state.jobStatus, { error: { code: 'not_found', message: 'recording not found' } })
-    if (route === 'GET /v1/recordings/rec_1/transcript') return reply(200, transcript)
-    if (route === 'POST /v1/recordings/rec_1/stop') return state.stopStatus === 200 ? reply(200, {}) : reply(409, { error: { code: 'conflict', message: 'Over.' } })
+    if (route === 'GET /v1/transcriptions/tx_1/job') return state.jobStatus === 200 ? reply(200, state.job) : reply(state.jobStatus, { error: { code: 'not_found', message: 'transcription not found' } })
+    if (route === 'GET /v1/transcriptions/tx_1/transcript') return reply(200, transcript)
+    if (route === 'POST /v1/transcriptions/tx_1/stop') return state.stopStatus === 200 ? reply(200, {}) : reply(409, { error: { code: 'conflict', message: 'Over.' } })
     return reply(404, { error: { code: 'not_found', message: route } })
   })
   return { calls, fetchImpl: fetchImpl as unknown as typeof fetch, state }

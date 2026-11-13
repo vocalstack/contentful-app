@@ -96,7 +96,7 @@ async function startJob(frame, name) {
 const PROGRESS = /^(Queued|Fetching the file|Extracting audio|Transcribing)( · \d+%|…)/
 
 let firstTranscript
-let firstRecording
+let firstTranscription
 
 await server.reset()
 
@@ -143,10 +143,10 @@ await step('entry field: Transcribe shows progress in the field and the sidebar'
   await progress.waitFor({ timeout: 30000 })
   await sidebar.getByRole('button', { name: 'Transcribing…' }).waitFor({ timeout: 10000 })
   const v = await transcriptValue()
-  assert(v?.status === 'processing' && v.recordingId && v.transcriptionId, `field value: ${JSON.stringify(v)}`)
-  firstRecording = v.recordingId
+  assert(v?.status === 'processing' && v.transcriptionId && !('recordingId' in v), `field value: ${JSON.stringify(v)}`)
+  firstTranscription = v.transcriptionId
   await shot('03-entry-transcribing')
-  return `${(await progress.textContent()).trim()}; recording ${v.recordingId}`
+  return `${(await progress.textContent()).trim()}; transcription ${v.transcriptionId}`
 })
 
 await step('entry field: reload mid-job, the job is picked back up', async () => {
@@ -168,7 +168,7 @@ await step('entry field: done, real transcript saved in the JSON value', async (
     const x = await transcriptValue()
     return x?.status === 'done' && x
   })
-  assert(v.recordingId === firstRecording, 'another recording was saved')
+  assert(v.transcriptionId === firstTranscription, 'another transcription was saved')
   assert(typeof v.transcript === 'string' && v.transcript.split(/\s+/).length >= 10, `transcript too short: ${v.transcript}`)
   assert(Array.isArray(v.sentences) && v.sentences.length > 0 && v.sentences.every((s) => typeof s.start === 'number' && typeof s.end === 'number' && s.text), 'sentences missing')
   assert(v.language, 'no language')
@@ -194,7 +194,7 @@ await step('stop: a second run, started in the sidebar, stopped in the field', a
   await field.getByRole('button', { name: 'Stop' }).waitFor({ timeout: 60000 })
   const running = await until('the second job', async () => {
     const x = await transcriptValue()
-    return x?.status === 'processing' && x.recordingId !== firstRecording && x
+    return x?.status === 'processing' && x.transcriptionId !== firstTranscription && x
   })
   // While it runs, the earlier transcript stays in the field's value.
   assert(running.transcript === firstTranscript, 'the earlier transcript was replaced while the job runs')
@@ -208,14 +208,14 @@ await step('stop: a second run, started in the sidebar, stopped in the field', a
     return x?.status === 'done' && x
   })
   assert(v.transcript === firstTranscript, 'Stop lost the earlier transcript')
-  assert(v.recordingId === running.recordingId, 'recordingId')
+  assert(v.transcriptionId === running.transcriptionId, 'transcriptionId')
   await field.getByRole('button', { name: 'Transcribe again' }).waitFor()
   await sidebar.getByRole('button', { name: 'Transcribe again' }).waitFor()
   // VocalStack itself says the job was stopped.
-  const job = await (await fetch(`${API_URL}/v1/recordings/${running.recordingId}/job`, { headers: { authorization: `Bearer ${KEY}` } })).json()
+  const job = await (await fetch(`${API_URL}/v1/transcriptions/${running.transcriptionId}/job`, { headers: { authorization: `Bearer ${KEY}` } })).json()
   assert(job.state === 'stopped' && job.errorCode === 'stopped', `VocalStack job: ${JSON.stringify(job)}`)
   await shot('08-stopped')
-  return `recording ${running.recordingId}: ${job.state}/${job.errorCode}`
+  return `transcription ${running.transcriptionId}: ${job.state}/${job.errorCode}`
 })
 
 await step('stop elsewhere: a third run stopped in VocalStack itself, the field goes back', async () => {
@@ -225,7 +225,7 @@ await step('stop elsewhere: a third run stopped in VocalStack itself, the field 
     const x = await transcriptValue()
     return x?.status === 'processing' && x
   })
-  const res = await fetch(`${API_URL}/v1/recordings/${running.recordingId}/stop`, { body: JSON.stringify({ reason: 'e2e: stopped outside Contentful' }), headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' }, method: 'POST' })
+  const res = await fetch(`${API_URL}/v1/transcriptions/${running.transcriptionId}/stop`, { body: JSON.stringify({ reason: 'e2e: stopped outside Contentful' }), headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' }, method: 'POST' })
   assert(res.ok, `stop answered ${res.status}`)
   await toast('Transcription stopped.')
   const v = await until('the stopped state', async () => {

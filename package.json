@@ -1,6 +1,6 @@
 {
   "name": "@vocalstack/contentful",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "description": "VocalStack for Contentful: a Transcribe button on every entry with audio, its VocalStack calls in an App Function.",
   "license": "MIT",
